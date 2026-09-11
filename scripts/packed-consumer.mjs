@@ -4,6 +4,7 @@ import {
   copyFileSync,
   existsSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
   rmSync,
   writeFileSync,
@@ -16,6 +17,16 @@ import { fileURLToPath } from "node:url";
 const root = fileURLToPath(new URL("../", import.meta.url));
 const temporary = mkdtempSync(resolve(tmpdir(), "playwright-lite-consumer-"));
 const env = { ...process.env, PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: "1" };
+
+function* installedFiles(directory, prefix = "") {
+  for (const entry of readdirSync(directory, { withFileTypes: true })) {
+    const path = `${prefix}${entry.name}`;
+    if (entry.isDirectory())
+      yield* installedFiles(resolve(directory, entry.name), `${path}/`);
+    else yield path;
+  }
+}
+
 let browser;
 try {
   assert.ok(
@@ -75,17 +86,13 @@ try {
     temporary,
     "node_modules/@ayme-dev/playwright-lite"
   );
-  const [packed] = JSON.parse(
-    execFileSync("npm", ["pack", "--dry-run", "--ignore-scripts", "--json"], {
-      cwd: installedRoot,
-      encoding: "utf8",
-      env,
-    })
-  );
-  const files = new Set(packed.files.map((file) => file.path));
+  // Inspect the installed artifact directly; packing it again can run prepare.
+  const files = new Set(installedFiles(installedRoot));
   for (const file of [
     "dist/index.mjs",
     "dist/index.d.mts",
+    "dist/internal.mjs",
+    "dist/internal.d.mts",
     "LICENSE",
     "README.md",
     "THIRD_PARTY_NOTICES.txt",
