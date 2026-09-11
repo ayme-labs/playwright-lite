@@ -19,131 +19,48 @@ jobs:
           node-version: 24.12.0
       - run: npm install --global pnpm@11.24.0
       - run: pnpm install --frozen-lockfile
-      - name: Apply the fork-only integration
+      - name: Bundle the compiled runtime for test injection
         run: |
           python3 <<'PY'
-          import json
           from pathlib import Path
-          def edit(path, old, new):
-              p = Path(path)
-              s = p.read_text()
-              assert old in s, (path, old)
-              p.write_text(s.replace(old, new))
-          for f in ['package.json', 'scripts/packed-consumer.mjs', 'tests/consumer.ts', 'README.md']:
-              p = Path(f)
-              p.write_text(p.read_text().replace('@enekesabel/playwright-lite', '@ayme-dev/playwright-lite'))
-          p = Path('package.json')
-          package = json.loads(p.read_text())
-          package['private'] = True
-          package['repository']['url'] = 'git+https://github.com/ayme-labs/playwright-lite.git'
-          package['scripts']['prepare'] = 'pnpm build'
-          package['exports']['./internal'] = {
-              'types': './dist/internal.d.mts',
-              'import': './dist/internal.mjs',
-              'default': './dist/internal.mjs',
-          }
-          p.write_text(json.dumps(package, indent=2, ensure_ascii=False) + '\n')
-          edit('tsdown.config.ts', 'entry: ["src/index.ts"]', 'entry: ["src/index.ts", "src/internal.ts"]')
-          edit('scripts/packed-consumer.mjs', 'Object.keys(installedPackage.exports), ["."]', 'Object.keys(installedPackage.exports), [".", "./internal"]')
-          edit('build/playwright-injected.d.ts', '    parseSelector(selector: string): ParsedSelector;', '''    captureAriaSnapshot(node: Element): {
-                distilledText: string;
-                fullText: string;
-                refsByElement: Map<Element, string>;
-              };
-              parseSelector(selector: string): ParsedSelector;''')
-          Path('src/internal.ts').write_text('''import { injectedScriptFor } from "./injected";
+          p = Path('tests/upstream/adapter-bridge.ts')
+          s = p.read_text()
+          assert s.count('readFileSync') == 2
+          s = s.replace('import { readFileSync } from "node:fs";', 'import { buildSync } from "esbuild";')
+          start = s.index('  const dist = readFileSync(ADAPTER_DIST_PATH, "utf8");')
+          end = s.index('  return cachedBundle;', start)
+          s = s[:start] + '''  // Bundle the built package, including shared chunks, without source aliases.
+            cachedBundle = buildSync({
+              entryPoints: [ADAPTER_DIST_PATH],
+              bundle: true,
+              write: false,
+              platform: "browser",
+              format: "iife",
+              globalName: "window.__pwLiteAdapter",
+            }).outputFiles[0]!.text;
 
-          // Fork-only contract for the WebMCP integration. Not part of upstream's root API.
-          export { isPlaywrightLiteLocator, resolveLocatorElements } from "./locator";
-
-          export type CaptureAriaSnapshotResult = {
-            distilledText: string;
-            fullText: string;
-            refsByElement: Map<Element, string>;
-          };
-
-          export function captureAriaSnapshot(root: Element): CaptureAriaSnapshotResult {
-            return injectedScriptFor(root).captureAriaSnapshot(root);
-          }
-          ''')
-          Path('src/internal.test.ts').write_text('''import { afterEach, expect, it } from "vitest";
-          import { createPage } from "./index";
-          import { captureAriaSnapshot, isPlaywrightLiteLocator, resolveLocatorElements } from "./internal";
-
-          afterEach(() => { document.body.innerHTML = ""; });
-
-          it("keeps full DOM refs and locator identity across dual captures", async () => {
-            document.body.innerHTML = '<section id="root"><h2 style="pointer-events:none">Heading</h2><button data-test="save">Save</button><p style="pointer-events:none">Static</p></section>';
-            const page = createPage({ testIdAttribute: "data-test" });
-            const locator = page.getByTestId("save");
-            const button = document.querySelector("button")!;
-            expect(isPlaywrightLiteLocator(locator)).toBe(true);
-            expect(isPlaywrightLiteLocator({})).toBe(false);
-            expect(resolveLocatorElements(locator)).toEqual([button]);
-            const before = await page.ariaSnapshot();
-            const first = captureAriaSnapshot(document.body);
-            const second = captureAriaSnapshot(document.body);
-            expect([...second.refsByElement]).toEqual([...first.refsByElement]);
-            for (const element of document.querySelectorAll("h2,button,p")) {
-              const ref = first.refsByElement.get(element);
-              expect(ref).toBeDefined();
-              expect(first.fullText).toContain(`[ref=${ref}]`);
-              expect(first.distilledText).toContain(`[ref=${ref}]`);
-            }
-            expect(await page.ariaSnapshot()).toBe(before);
-            expect(await locator.count()).toBe(1);
-          });
-          ''')
-          edit('scripts/generate-injected.mjs', 'const check = process.argv.includes("--check");', '''const check = process.argv.includes("--check");
-          // The compatibility corpus stays pinned to stock Playwright.
-          const injectedSource = {
-            repository: "ayme-labs/playwright",
-            commit: "b25d782e3fbdf21abdae60e974e49b78ca07e828",
-          };''')
-          edit('scripts/generate-injected.mjs', '"https://github.com/microsoft/playwright.git"', '`https://github.com/${injectedSource.repository}.git`')
-          edit('scripts/generate-injected.mjs', '    corpus.source.commit,', '    injectedSource.commit,')
-          edit('scripts/generate-injected.mjs', 'assert.equal(revision, corpus.source.commit);', 'assert.equal(revision, injectedSource.commit);')
-          p = Path('README.md')
-          p.write_text('''# Ayme Playwright Lite fork
-
-          This fork of [playwright-lite](https://github.com/enekesabel/playwright-lite) is consumed by Ayme WebMCP as an exact-commit Git dependency. It is not published to a package registry.
-
-          The root still exports only `createPage` and `CreatePageOptions`. The fork-only `./internal` entry preserves dual ARIA capture and the existing locator-to-DOM integration. Do not expose it through WebMCP's public API.
-
-          The compatibility corpus stays on stock Playwright 1.62.1. Injected code is generated from `ayme-labs/playwright@b25d782e3fbdf21abdae60e974e49b78ca07e828`. `pnpm generate:check` verifies that artifact and the keyboard layout. Build hashes are pinned and must be reviewed when changing the injected source.
-
-          Git installation runs `prepare` to build the checked-in generated source. Source builds use the Node 24 Devbox environment; the packed browser library retains its tested Node 20 consumer compatibility. WebMCP explicitly allows this Git dependency's build and bundles it into its distribution.
-
-          ## Upstream usage and compatibility
-
-          ''' + p.read_text())
-          p = Path('THIRD_PARTY_NOTICES.txt')
-          p.write_text(p.read_text() + '\nThis fork modifies the injected runtime source to ayme-labs/playwright at b25d782e3fbdf21abdae60e974e49b78ca07e828 for dual ARIA capture. Stock compatibility sources and their existing notices are retained.\n')
-          PY
-      - run: pnpm generate:injected
-      - name: Pin the generated fork artifact
-        run: |
-          python3 <<'PY'
-          import hashlib, re
-          from pathlib import Path
-          artifact = Path('build/generated/injectedScriptSource.ts').read_bytes()
-          p = Path('build/playwrightInjectedPlugin.ts')
-          s = re.sub(r'const expectedArtifactBytes = \d+;', f'const expectedArtifactBytes = {len(artifact)};', p.read_text())
-          s = re.sub(r'(?<=  ")[a-f0-9]{64}(?=";)', hashlib.sha256(artifact).hexdigest(), s, count=1)
+          ''' + s[end:]
           p.write_text(s)
-          print('REVIEW_ARTIFACT', len(artifact), hashlib.sha256(artifact).hexdigest())
           PY
-          pnpm exec prettier --write package.json src/internal.ts src/internal.test.ts build/playwright-injected.d.ts build/playwrightInjectedPlugin.ts tsdown.config.ts scripts/generate-injected.mjs scripts/packed-consumer.mjs tests/consumer.ts README.md
-          git add package.json src/internal.ts src/internal.test.ts build scripts/generate-injected.mjs scripts/packed-consumer.mjs tests/consumer.ts tsdown.config.ts README.md THIRD_PARTY_NOTICES.txt LICENSES
-          git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' commit -m 'feat: prepare fork-only WebMCP integration'
+          pnpm exec prettier --write tests/upstream/adapter-bridge.ts
+          git add tests/upstream/adapter-bridge.ts
+          git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' commit -m 'test: inject the complete compiled runtime bundle'
           git push origin HEAD:work/prepare-webmcp-integration
           git log -1 --format='PREPARED_COMMIT %H%nPREPARED_TREE %T'
       - run: pnpm exec playwright install --with-deps chromium
       - run: pnpm generate:check
-      - run: pnpm check
+      - name: Verify fork
+        run: |
+          set +e
+          pnpm check > "$RUNNER_TEMP/check.log" 2>&1
+          status=$?
+          tail -n 100 "$RUNNER_TEMP/check.log"
+          exit "$status"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:
           name: fork-test-results
-          path: test-results
+          path: |
+            test-results
+            ${{ runner.temp }}/check.log
           if-no-files-found: ignore
