@@ -19,36 +19,25 @@ jobs:
           node-version: 24.12.0
       - run: npm install --global pnpm@11.24.0
       - run: pnpm install --frozen-lockfile
-      - name: Bundle the compiled runtime for test injection
+      - name: Keep the test bundle global explicit
         run: |
           python3 <<'PY'
           from pathlib import Path
           p = Path('tests/upstream/adapter-bridge.ts')
           s = p.read_text()
-          assert s.count('readFileSync') == 2
-          s = s.replace('import { readFileSync } from "node:fs";', 'import { buildSync } from "esbuild";')
-          start = s.index('  const dist = readFileSync(ADAPTER_DIST_PATH, "utf8");')
-          end = s.index('  return cachedBundle;', start)
-          s = s[:start] + '''  // Bundle the built package, including shared chunks, without source aliases.
-            cachedBundle = buildSync({
-              entryPoints: [ADAPTER_DIST_PATH],
-              bundle: true,
-              write: false,
-              platform: "browser",
-              format: "iife",
-              globalName: "window.__pwLiteAdapter",
-            }).outputFiles[0]!.text;
-
-          ''' + s[end:]
+          old = '    globalName: "window.__pwLiteAdapter",'
+          assert old in s
+          s = s.replace(old, '    globalName: "__pwLiteBundle",\n    footer: { js: "globalThis.__pwLiteAdapter = __pwLiteBundle;" },')
           p.write_text(s)
           PY
           pnpm exec prettier --write tests/upstream/adapter-bridge.ts
           git add tests/upstream/adapter-bridge.ts
-          git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' commit -m 'test: inject the complete compiled runtime bundle'
+          git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' commit -m 'test: initialize the browser bridge in the global realm'
           git push origin HEAD:work/prepare-webmcp-integration
           git log -1 --format='PREPARED_COMMIT %H%nPREPARED_TREE %T'
       - run: pnpm exec playwright install --with-deps chromium
-      - run: pnpm generate:check
+      - name: Verify guard behavior
+        run: pnpm test:guards
       - name: Verify fork
         run: |
           set +e
