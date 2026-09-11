@@ -47,7 +47,7 @@ try {
         private: true,
         type: "module",
         dependencies: {
-          "@enekesabel/playwright-lite": `file:${tarball}`,
+          "@ayme-dev/playwright-lite": `file:${tarball}`,
           "@playwright/test": "1.62.1",
           "@types/node": "20.19.43",
           esbuild: "0.28.1",
@@ -73,7 +73,7 @@ try {
   const consumerRequire = createRequire(resolve(temporary, "package.json"));
   const installedRoot = resolve(
     temporary,
-    "node_modules/@enekesabel/playwright-lite"
+    "node_modules/@ayme-dev/playwright-lite"
   );
   const [packed] = JSON.parse(
     execFileSync("npm", ["pack", "--dry-run", "--ignore-scripts", "--json"], {
@@ -108,14 +108,14 @@ try {
   );
   assert.equal(installedPackage.license, "MIT");
   assert.equal(installedPackage.engines.node, ">=20");
-  assert.deepEqual(Object.keys(installedPackage.exports), ["."]);
+  assert.deepEqual(Object.keys(installedPackage.exports), [".", "./internal"]);
   assert.equal(installedPackage.dependencies?.yaml, undefined);
   assert.equal(installedPackage.devDependencies.yaml, "2.9.0");
   assert.throws(() => consumerRequire.resolve("yaml"), {
     code: "MODULE_NOT_FOUND",
   });
   assert.throws(
-    () => consumerRequire.resolve("@enekesabel/playwright-lite/dom"),
+    () => consumerRequire.resolve("@ayme-dev/playwright-lite/dom"),
     { code: "ERR_PACKAGE_PATH_NOT_EXPORTED" }
   );
   const declarations = readFileSync(
@@ -174,7 +174,7 @@ try {
   });
   assert.ok(
     Object.keys(result.metafile.inputs).some((path) =>
-      path.includes("node_modules/@enekesabel/playwright-lite/dist/index.mjs")
+      path.includes("node_modules/@ayme-dev/playwright-lite/dist/index.mjs")
     ),
     "Consumer must import the installed artifact."
   );

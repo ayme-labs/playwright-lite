@@ -5,7 +5,7 @@ import { playwrightInjectedPlugin } from "./build/playwrightInjectedPlugin.ts";
 export default defineConfig({
   clean: true,
   dts: true,
-  entry: ["src/index.ts"],
+  entry: ["src/index.ts", "src/internal.ts"],
   deps: {
     alwaysBundle: [/[/\\]yaml[/\\]/],
     neverBundle: ["@playwright/test"],

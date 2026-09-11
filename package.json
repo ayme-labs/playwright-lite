@@ -1,5 +1,5 @@
 {
-  "name": "@enekesabel/playwright-lite",
+  "name": "@ayme-dev/playwright-lite",
   "version": "0.1.0",
   "description": "Playwright-compatible Page and Locator operations in the current browser document",
   "license": "MIT",
@@ -11,7 +11,7 @@
   "packageManager": "pnpm@11.24.0",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/enekesabel/playwright-lite.git"
+    "url": "git+https://github.com/ayme-labs/playwright-lite.git"
   },
   "publishConfig": {
     "registry": "https://npm.pkg.github.com"
@@ -28,6 +28,11 @@
       "types": "./dist/index.d.mts",
       "import": "./dist/index.mjs",
       "default": "./dist/index.mjs"
+    },
+    "./internal": {
+      "types": "./dist/internal.d.mts",
+      "import": "./dist/internal.mjs",
+      "default": "./dist/internal.mjs"
     }
   },
   "scripts": {
@@ -46,7 +51,8 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "test:package": "node scripts/packed-consumer.mjs",
-    "check": "pnpm build && pnpm lint && pnpm typecheck && pnpm upstream:check && pnpm test && pnpm test:e2e && pnpm test:package && pnpm format:check"
+    "check": "pnpm build && pnpm lint && pnpm typecheck && pnpm upstream:check && pnpm test && pnpm test:e2e && pnpm test:package && pnpm format:check",
+    "prepare": "pnpm build"
   },
   "peerDependencies": {
     "@playwright/test": ">=1.62.1 <1.63.0"
@@ -68,5 +74,6 @@
     "typescript": "^6.0.3",
     "vitest": "^4.1.11",
     "yaml": "2.9.0"
-  }
+  },
+  "private": true
 }

@@ -1,3 +1,15 @@
+# Ayme Playwright Lite fork
+
+This fork of [playwright-lite](https://github.com/enekesabel/playwright-lite) is consumed by Ayme WebMCP as an exact-commit Git dependency. It is not published to a package registry.
+
+The root still exports only `createPage` and `CreatePageOptions`. The fork-only `./internal` entry preserves dual ARIA capture and the existing locator-to-DOM integration. Do not expose it through WebMCP's public API.
+
+The compatibility corpus stays on stock Playwright 1.62.1. Injected code is generated from `ayme-labs/playwright@b25d782e3fbdf21abdae60e974e49b78ca07e828`. `pnpm generate:check` verifies that artifact and the keyboard layout. Build hashes are pinned and must be reviewed when changing the injected source.
+
+Git installation runs `prepare` to build the checked-in generated source. Source builds use the Node 24 Devbox environment; the packed browser library retains its tested Node 20 consumer compatibility. WebMCP explicitly allows this Git dependency's build and bundles it into its distribution.
+
+## Upstream usage and compatibility
+
 # playwright-lite
 
 Playwright-compatible `Page` and `Locator` operations for the browser document you're already in.
@@ -9,7 +21,7 @@ This is an independent project, not an official Microsoft package. The first rel
 ## Usage
 
 ```ts
-import { createPage } from "@enekesabel/playwright-lite";
+import { createPage } from "@ayme-dev/playwright-lite";
 
 const page = createPage({
   testIdAttribute: "data-test",
