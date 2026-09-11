@@ -5,7 +5,7 @@
  * the browser page, and creates proxy Page/Locator objects that route
  * all compatibility calls through the adapter.
  */
-import { readFileSync } from "node:fs";
+import { buildSync } from "esbuild";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -334,17 +334,15 @@ let cachedBundle: string | undefined;
 function buildAdapterBundle(): string {
   if (cachedBundle) return cachedBundle;
 
-  const dist = readFileSync(ADAPTER_DIST_PATH, "utf8");
-
-  // Strip ES module export declaration so the code runs as a script.
-  const js = dist.replace(/^export\s+\{[^}]*\}.*$/gm, "");
-
-  cachedBundle = [
-    "window.__pwLiteAdapter = (function() {",
-    js,
-    "return { createPage: createPage };",
-    "})();",
-  ].join("\n");
+  // Bundle the built package, including shared chunks, without source aliases.
+  cachedBundle = buildSync({
+    entryPoints: [ADAPTER_DIST_PATH],
+    bundle: true,
+    write: false,
+    platform: "browser",
+    format: "iife",
+    globalName: "window.__pwLiteAdapter",
+  }).outputFiles[0]!.text;
 
   return cachedBundle;
 }
