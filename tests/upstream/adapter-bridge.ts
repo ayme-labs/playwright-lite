@@ -341,7 +341,8 @@ function buildAdapterBundle(): string {
     write: false,
     platform: "browser",
     format: "iife",
-    globalName: "window.__pwLiteAdapter",
+    globalName: "__pwLiteBundle",
+    footer: { js: "globalThis.__pwLiteAdapter = __pwLiteBundle;" },
   }).outputFiles[0]!.text;
 
   return cachedBundle;
