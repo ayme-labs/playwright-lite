@@ -1,5 +1,5 @@
 /**
- * Bridges the @enekesabel/playwright-lite in-browser adapter with
+ * Bridges the @ayme-dev/playwright-lite in-browser adapter with
  * Playwright Test's Node.js fixture. Loads the compiled dist bundle
  * (which includes the real pinned InjectedScript), injects it into
  * the browser page, and creates proxy Page/Locator objects that route

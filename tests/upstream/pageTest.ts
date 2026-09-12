@@ -2,7 +2,7 @@
  * Package-local replacement for Playwright's tests/page/pageTest.ts.
  *
  * Routes all Page/Locator calls through the actual
- * @enekesabel/playwright-lite createPage adapter running in the browser.
+ * @ayme-dev/playwright-lite createPage adapter running in the browser.
  * No calls fall back to the real Playwright driver.
  *
  * Upstream spec files import { test, expect } from './pageTest' unchanged.

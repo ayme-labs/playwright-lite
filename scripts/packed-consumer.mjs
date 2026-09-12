@@ -185,6 +185,12 @@ try {
     ),
     "Consumer must import the installed artifact."
   );
+  assert.ok(
+    Object.keys(result.metafile.inputs).some((path) =>
+      path.includes("node_modules/@ayme-dev/playwright-lite/dist/internal.mjs")
+    ),
+    "Consumer must import the installed internal artifact."
+  );
   for (const output of Object.values(result.metafile.outputs))
     assert.equal(
       output.imports.length,
@@ -206,8 +212,18 @@ try {
   assert.equal(observed.defaultCount, 1);
   assert.match(observed.snapshot, /button "Save"/);
   assert.match(observed.locatorSnapshot, /button "Save"/);
+  assert.equal(observed.internalIsLocator, true);
+  assert.equal(observed.internalResolvedSave, true);
+  assert.match(observed.internalSnapshot.fullText, /button "Save"/);
+  assert.match(observed.internalSnapshot.distilledText, /button "Save"/);
+  assert.ok(observed.internalSnapshot.saveRef);
+  assert.ok(
+    observed.internalSnapshot.fullText.includes(
+      `[ref=${observed.internalSnapshot.saveRef}]`
+    )
+  );
   console.log(
-    `PASS packed consumer on Node ${process.version}: strict isolated install, minimal exports, declarations, POM actions, keyboard, test IDs, and snapshots without an installed YAML dependency`
+    `PASS packed consumer on Node ${process.version}: strict isolated install, root and internal exports, declarations, POM actions, keyboard, test IDs, and snapshots without an installed YAML dependency`
   );
 } finally {
   await browser?.close();

@@ -13,9 +13,6 @@
     "type": "git",
     "url": "git+https://github.com/ayme-labs/playwright-lite.git"
   },
-  "publishConfig": {
-    "registry": "https://npm.pkg.github.com"
-  },
   "files": [
     "dist",
     "LICENSE",
