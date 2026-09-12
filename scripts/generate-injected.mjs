@@ -17,6 +17,11 @@ import { corpus } from "../tests/upstream/corpus.ts";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
 const check = process.argv.includes("--check");
+// The compatibility corpus stays pinned to stock Playwright.
+const injectedSource = {
+  repository: "ayme-labs/playwright",
+  commit: "b25d782e3fbdf21abdae60e974e49b78ca07e828",
+};
 assert.equal(corpus.source.repository, "microsoft/playwright");
 assert.match(corpus.source.commit, /^[a-f0-9]{40}$/);
 const temporary = mkdtempSync(resolve(tmpdir(), "playwright-lite-upstream-"));
@@ -46,7 +51,7 @@ try {
     "remote",
     "add",
     "origin",
-    "https://github.com/microsoft/playwright.git",
+    `https://github.com/${injectedSource.repository}.git`,
   ]);
   run("git", [
     "-C",
@@ -55,13 +60,13 @@ try {
     "--quiet",
     "--depth=1",
     "origin",
-    corpus.source.commit,
+    injectedSource.commit,
   ]);
   run("git", ["-C", checkout, "checkout", "--quiet", "--detach", "FETCH_HEAD"]);
   const revision = execFileSync("git", ["-C", checkout, "rev-parse", "HEAD"], {
     encoding: "utf8",
   }).trim();
-  assert.equal(revision, corpus.source.commit);
+  assert.equal(revision, injectedSource.commit);
   const require = createRequire(import.meta.url);
   const modules = resolve(
     dirname(require.resolve("esbuild/package.json")),

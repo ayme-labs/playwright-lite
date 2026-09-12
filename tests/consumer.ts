@@ -1,9 +1,11 @@
 import type { Locator, Page } from "@playwright/test";
+import { createPage, type CreatePageOptions } from "@ayme-dev/playwright-lite";
+import * as publicExports from "@ayme-dev/playwright-lite";
 import {
-  createPage,
-  type CreatePageOptions,
-} from "@enekesabel/playwright-lite";
-import * as publicExports from "@enekesabel/playwright-lite";
+  captureAriaSnapshot,
+  isPlaywrightLiteLocator,
+  resolveLocatorElements,
+} from "@ayme-dev/playwright-lite/internal";
 
 class ProfilePage {
   readonly name: Locator;
@@ -41,6 +43,9 @@ export async function runConsumer() {
   const page: Page = createPage(options);
   const profile = new ProfilePage(page);
   await profile.saveName("Ada");
+  const internalSnapshot = captureAriaSnapshot(document.body);
+  const saveRef = internalSnapshot.refsByElement.get(button);
+  const resolvedSave = resolveLocatorElements(profile.save);
   return {
     exports: Object.keys(publicExports).sort(),
     value: await profile.name.inputValue(),
@@ -50,5 +55,13 @@ export async function runConsumer() {
     defaultCount: await createPage().getByTestId("default").count(),
     snapshot: await page.ariaSnapshot(),
     locatorSnapshot: await profile.save.ariaSnapshot(),
+    internalIsLocator: isPlaywrightLiteLocator(profile.save),
+    internalResolvedSave:
+      resolvedSave.length === 1 && resolvedSave[0] === button,
+    internalSnapshot: {
+      fullText: internalSnapshot.fullText,
+      distilledText: internalSnapshot.distilledText,
+      saveRef: saveRef ?? null,
+    },
   };
 }
