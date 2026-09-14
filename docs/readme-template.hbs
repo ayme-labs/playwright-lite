@@ -1,0 +1,72 @@
+<!-- Generated from docs/readme-template.hbs and compatibility/api.ts. Run pnpm generate:readme. -->
+
+# playwright-lite
+
+Use Playwright's `Page` and `Locator` APIs in the browser document you're already in.
+`playwright-lite` runs inside your application, without launching a browser or connecting to a Playwright server.
+
+```ts
+import { createPage } from "@enekesabel/playwright-lite";
+
+const page = createPage({
+  testIdAttribute: "data-test",
+  actionTimeout: 5_000,
+  navigationTimeout: 10_000,
+});
+
+await page.getByRole("textbox", { name: "Name" }).fill("Ada");
+await page.getByRole("button", { name: "Save" }).click();
+```
+
+{{!--
+Runtime-wide constraints of executing inside the current document belong here.
+Do not repeat them in partial API notes or downgrade APIs because of them.
+--}}
+## Runtime boundaries
+
+- **Current document only.** No iframe traversal, `Frame`, or `FrameLocator` support.
+- **Navigation ends execution.** `goto()` can start navigation, but replacing the document destroys the JavaScript context running your script. Automation cannot continue across a full-page navigation or reload.
+- **Synthetic input.** Input events are not browser-trusted. Native keyboard behavior such as cursor movement, deletion, and focus traversal is not simulated.
+- **No browser control.** No browser launch, browser contexts, or browser-level control over network traffic, downloads, or other tabs.
+- **Content Security Policy still applies.** Evaluation callbacks need dynamic JavaScript evaluation to be allowed by the page's policy; the library does not bypass it.
+
+## Use cases
+
+- Automate your own application in the browser you're using.
+- Let an in-app assistant inspect and interact with the page.
+- Build guided onboarding and automation flows.
+- Run the supported parts of existing Playwright scripts inside your application.
+
+## Installation
+
+GitHub Packages publication and installation instructions are tracked in [#8](https://github.com/enekesabel/playwright-lite/issues/8).
+
+{{!--
+The ledger owns statuses and exact public JavaScript API differences. Notes name
+unsupported options/inputs or contrast return/selection behavior with Playwright;
+they do not repeat upstream documentation or expose internal helper/type names.
+Keep contributor instructions out of this consumer README.
+--}}
+## Compatibility
+
+Targets Playwright **{{playwrightVersion}}**. Statuses describe API compatibility within the runtime boundaries above. API links open Playwright's current documentation.
+
+✅ Compatible · ⚠️ Partially compatible · ❌ Not implemented · 🚫 Intentionally excluded
+
+{{#each tables}}
+### {{name}}
+
+| API | Status | Notes |
+| --- | :---: | --- |
+{{#each rows}}
+| {{#if url}}[`{{label}}`]({{{url}}}){{else}}`{{label}}`{{/if}} | {{status}} | {{{note}}} |
+{{/each}}
+
+{{/each}}
+### ElementHandle compatibility
+
+{{{elementHandleLimitations}}}
+
+## License
+
+MIT for this project. Bundled and copied third-party code retains its own license. See [THIRD_PARTY_NOTICES.txt](THIRD_PARTY_NOTICES.txt) and [LICENSES](LICENSES).

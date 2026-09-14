@@ -8,6 +8,9 @@ playwright-report
 tests/upstream/*.spec.ts
 tests/assets/input/button.html
 tests/assets/input/mouse-helper.js
+# Markdown template; the generator formats its rendered output.
+docs/readme-template.hbs
+
 # Exact pinned upstream pointer fixtures.
 tests/assets/input/animating-button.html
 tests/assets/input/scrollable.html
