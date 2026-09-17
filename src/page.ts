@@ -732,7 +732,7 @@ export class PageImpl {
   }
 
   async fillSelector(
-    selector: string,
+    selector: string | Element,
     value: string,
     label: string,
     timeout?: number,
@@ -811,7 +811,7 @@ export class PageImpl {
   }
 
   async focusSelector(
-    selector: string,
+    selector: string | Element,
     label: string,
     options?: LocatorQueryOptions,
     strict = true
@@ -875,7 +875,7 @@ export class PageImpl {
   }
 
   async selectOptionSelector(
-    selector: string,
+    selector: string | Element,
     values: string | SelectOptionValue | (string | SelectOptionValue)[] | null,
     label: string,
     timeout?: number,
@@ -1013,10 +1013,12 @@ export class PageImpl {
   }
 
   async setInputFilesSelector(
-    selector: string,
+    selector: string | Element,
     files: InputFiles,
     options: PageSetInputFilesOptions = {},
-    strict = false
+    strict = false,
+    // Only names a selector that found nothing, which a handle never reports.
+    label = typeof selector === "string" ? selector : "elementHandle"
   ): Promise<void> {
     assertPageActionOptions("setInputFiles", options, [
       "noWaitAfter",
@@ -1029,7 +1031,7 @@ export class PageImpl {
     this.attachActionSignal(deadline, options.signal);
     await this.query(
       selector,
-      selector,
+      label,
       { signal: options.signal, timeout: options.timeout },
       strict || options.strict === true,
       (element) => {
@@ -1258,7 +1260,7 @@ export class PageImpl {
   }
 
   async typeSelector(
-    selector: string,
+    selector: string | Element,
     text: string,
     options: PageKeyboardInputOptions | undefined,
     label: string,
@@ -1401,7 +1403,7 @@ export class PageImpl {
   }
 
   async dispatchEventSelector(
-    selector: string,
+    selector: string | Element,
     type: string,
     eventInit: object,
     label: string,
@@ -2248,7 +2250,7 @@ export class PageImpl {
   }
 
   private async query<T>(
-    selector: string,
+    selector: string | Element,
     label: string,
     options: SelectorQueryOptions | LocatorQueryOptions | undefined,
     strict: boolean,
@@ -2270,7 +2272,7 @@ export class PageImpl {
 
     while (true) {
       try {
-        const element = this.queryElement(
+        const element = this.resolvePointerElement(
           selector,
           label,
           strict ||
@@ -2282,7 +2284,7 @@ export class PageImpl {
         const remaining = deadline - Date.now();
         if (remaining <= 0)
           throw new AdapterTimeoutError(
-            `Timeout ${timeout}ms exceeded.\nCall log:\n  - waiting for ${formatLocator(selector)}`,
+            `Timeout ${timeout}ms exceeded.${queryCallLog(selector)}`,
             { cause: error }
           );
         const delay = Math.min(QUERY_RETRY_DELAY, remaining);
@@ -4037,6 +4039,15 @@ function formatLocator(selector: string): string {
 }
 
 /**
+ * The call log line naming what a query waited for. A handle already holds its
+ * element, so pinned ElementHandle diagnostics name no locator to wait for.
+ */
+function queryCallLog(selector: string | Element): string {
+  if (typeof selector !== "string") return "";
+  return `\nCall log:\n  - waiting for ${formatLocator(selector)}`;
+}
+
+/**
  * Pinned Playwright reports an InjectedScript fill rejection through the
  * calling member and the action's call log, not as the bare injected message:
  * `page.fill: Error: Element is not an <input>, <textarea> or [contenteditable]
@@ -4045,15 +4056,21 @@ function formatLocator(selector: string): string {
  */
 function injectedFillError(
   error: Error,
-  selector: string,
+  selector: string | Element,
   label: string,
   apiMethod: "fill" | "clear"
 ): Error {
   const prefix = label.startsWith("page.fill(")
     ? "page.fill"
-    : `locator.${apiMethod}`;
+    : label.startsWith("elementHandle.")
+      ? label
+      : `locator.${apiMethod}`;
+  const waitingFor =
+    typeof selector === "string"
+      ? `\n  - waiting for ${formatLocator(selector)}`
+      : "";
   return new Error(
-    `${prefix}: Error: ${error.message}\nCall log:\n  - waiting for ${formatLocator(selector)}\n  - attempting fill action\n    - waiting for element to be visible, enabled and editable`,
+    `${prefix}: Error: ${error.message}\nCall log:${waitingFor}\n  - attempting fill action\n    - waiting for element to be visible, enabled and editable`,
     { cause: error }
   );
 }

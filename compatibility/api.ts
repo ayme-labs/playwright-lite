@@ -55,7 +55,7 @@ const outOfScope = (limitations: string): CompatibilityEntry => ({
  * browser runtime.
  */
 export const elementHandleLimitations =
-  "Returned `ElementHandle` objects do not implement `contentFrame()`, `dispatchEvent()`, `fill()`, `focus()`, `ownerFrame()`, `screenshot()`, `selectOption()`, `setInputFiles()`, `tap()`, `type()`, `evaluateHandle()`, `jsonValue()`, `getProperties()`, `getProperty()`, or `[Symbol.asyncDispose]()`. Their `$()` ignores `strict`; `click()` and `dblclick()` reject `steps`, and `click()` does not wait for navigation; `selectText()` rejects `force`; `waitForElementState()` rejects `signal`; `waitForSelector()` rejects `strict`; `evaluate()` rejects `exposeFunctions: true`. The `JSHandle` returned by `waitForFunction()` does not implement `asElement()`, `evaluate()`, `evaluateHandle()`, `getProperties()`, `getProperty()`, or `[Symbol.asyncDispose]()`.";
+  "Returned `ElementHandle` objects do not implement `contentFrame()`, `ownerFrame()`, `screenshot()`, `tap()`, `evaluateHandle()`, `jsonValue()`, `getProperties()`, `getProperty()`, or `[Symbol.asyncDispose]()`. Their `$()` ignores `strict`; `click()` and `dblclick()` reject `steps`, and `click()` does not wait for navigation; `fill()`, `selectOption()`, and `selectText()` reject `force`; `waitForElementState()` rejects `signal`; `waitForSelector()` rejects `strict`; `evaluate()` rejects `exposeFunctions: true`. The `JSHandle` returned by `waitForFunction()` does not implement `asElement()`, `evaluate()`, `evaluateHandle()`, `getProperties()`, `getProperty()`, or `[Symbol.asyncDispose]()`.";
 
 export const pageLedger = {
   [Symbol.asyncDispose]: undecided(),
