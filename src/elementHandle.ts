@@ -1,6 +1,8 @@
 import { assertEvaluationOptions, assertMaxArguments } from "./evaluation";
 import type { EvaluationFunction, EvaluationOptions } from "./evaluation";
+import { rejectUnsupportedOptions } from "./protocolValidation";
 import type { PageImpl } from "./page";
+import { withAbortPrefix } from "./page";
 import type { ElementHandle } from "@playwright/test";
 
 type ElementHandleWaitOptions = { timeout?: number };
@@ -81,6 +83,63 @@ export class AdapterElementHandle {
       checked,
       "elementHandle.setChecked",
       options
+    );
+  }
+
+  async press(
+    key: string,
+    options?: Parameters<ElementHandle["press"]>[1]
+  ): Promise<void> {
+    const delay = rejectUnsupportedOptions("press", options, [
+      "delay",
+      "noWaitAfter",
+      "signal",
+      "timeout",
+    ]);
+    await withAbortPrefix("elementHandle.press", () =>
+      this.ownerPage.pressSelector(
+        this.requireElement(),
+        key,
+        "elementHandle.press",
+        options?.timeout,
+        undefined,
+        true,
+        options?.signal,
+        delay
+      )
+    );
+  }
+
+  async selectText(
+    options?: Parameters<ElementHandle["selectText"]>[0]
+  ): Promise<void> {
+    rejectUnsupportedOptions("selectText", options, ["signal", "timeout"]);
+    await withAbortPrefix("elementHandle.selectText", () =>
+      this.ownerPage.selectText(
+        this.requireElement(),
+        "elementHandle.selectText",
+        options?.timeout,
+        undefined,
+        options?.signal
+      )
+    );
+  }
+
+  async scrollIntoViewIfNeeded(
+    options?: Parameters<ElementHandle["scrollIntoViewIfNeeded"]>[0]
+  ): Promise<void> {
+    rejectUnsupportedOptions("scrollIntoViewIfNeeded", options, [
+      "signal",
+      "timeout",
+    ]);
+    await withAbortPrefix("elementHandle.scrollIntoViewIfNeeded", () =>
+      this.ownerPage.scrollLocatorIntoView(
+        this.requireElement(),
+        "elementHandle.scrollIntoViewIfNeeded",
+        options?.timeout,
+        undefined,
+        options?.signal
+      )
     );
   }
 
