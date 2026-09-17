@@ -1,6 +1,10 @@
 import type { Locator } from "@playwright/test";
 import { assertMaxArguments } from "./evaluation";
-import { validateNoWaitAfter } from "./protocolValidation";
+import {
+  validateDelay,
+  validateNoWaitAfter,
+  validateSignal,
+} from "./protocolValidation";
 import type { EvaluationFunction, EvaluationOptions } from "./evaluation";
 import type {
   AriaSnapshotOptions,
@@ -8,6 +12,7 @@ import type {
   PageImpl,
   SelectOptionValue,
 } from "./page";
+import { withAbortPrefix } from "./page";
 import { AdapterElementHandle } from "./elementHandle";
 import type { InputFiles } from "./inputFiles";
 import {
@@ -51,11 +56,12 @@ export type ByRoleOptions = {
   description?: string | RegExp;
 };
 
-type LocatorActionOptions = { timeout?: number };
+type LocatorActionOptions = { signal?: AbortSignal; timeout?: number };
 type LocatorActionWithNoWaitAfterOptions = LocatorActionOptions & {
   noWaitAfter?: boolean;
 };
-type LocatorTypeOptions = LocatorActionWithNoWaitAfterOptions & {
+/** Shared by `press`, `type` and `pressSequentially`. */
+type LocatorKeyboardInputOptions = LocatorActionWithNoWaitAfterOptions & {
   delay?: number;
 };
 
@@ -437,12 +443,21 @@ export class LocatorImpl {
   }
 
   async fill(value: string, options?: LocatorActionWithNoWaitAfterOptions) {
-    rejectUnsupportedOptions("fill", options, ["noWaitAfter", "timeout"]);
-    await this.ownerPage.fillSelector(
-      this.selector,
-      value,
-      this.label,
-      options?.timeout
+    rejectUnsupportedOptions("fill", options, [
+      "noWaitAfter",
+      "signal",
+      "timeout",
+    ]);
+    await withAbortPrefix("locator.fill", () =>
+      this.ownerPage.fillSelector(
+        this.selector,
+        value,
+        this.label,
+        options?.timeout,
+        undefined,
+        true,
+        options?.signal
+      )
     );
   }
 
@@ -452,41 +467,63 @@ export class LocatorImpl {
   ) {
     rejectUnsupportedOptions("setInputFiles", options, [
       "noWaitAfter",
+      "signal",
       "timeout",
     ]);
-    await this.ownerPage.setInputFilesSelector(
-      this.selector,
-      files,
-      options,
-      true
+    await withAbortPrefix("locator.setInputFiles", () =>
+      this.ownerPage.setInputFilesSelector(this.selector, files, options, true)
     );
   }
 
-  async press(key: string, options?: LocatorActionWithNoWaitAfterOptions) {
-    rejectUnsupportedOptions("press", options, ["noWaitAfter", "timeout"]);
-    await this.ownerPage.pressSelector(
-      this.selector,
-      key,
-      this.label,
-      options?.timeout
+  async press(key: string, options?: LocatorKeyboardInputOptions) {
+    const delay = rejectUnsupportedOptions("press", options, [
+      "delay",
+      "noWaitAfter",
+      "signal",
+      "timeout",
+    ]);
+    await withAbortPrefix("locator.press", () =>
+      this.ownerPage.pressSelector(
+        this.selector,
+        key,
+        this.label,
+        options?.timeout,
+        undefined,
+        true,
+        options?.signal,
+        delay
+      )
     );
   }
 
   async focus(options?: LocatorQueryOptions) {
-    await this.ownerPage.focusSelector(this.selector, this.label, options);
+    rejectUnsupportedOptions("focus", options, ["signal", "timeout"]);
+    await withAbortPrefix("locator.focus", () =>
+      this.ownerPage.focusSelector(this.selector, this.label, options)
+    );
   }
 
   async blur(options?: LocatorQueryOptions) {
+    rejectUnsupportedOptions("blur", options, ["signal", "timeout"]);
     await this.ownerPage.blurSelector(this.selector, this.label, options);
   }
 
   async clear(options?: LocatorActionWithNoWaitAfterOptions) {
-    rejectUnsupportedOptions("clear", options, ["noWaitAfter", "timeout"]);
-    await this.ownerPage.fillSelector(
-      this.selector,
-      "",
-      this.label,
-      options?.timeout
+    rejectUnsupportedOptions("clear", options, [
+      "noWaitAfter",
+      "signal",
+      "timeout",
+    ]);
+    await withAbortPrefix("locator.clear", () =>
+      this.ownerPage.fillSelector(
+        this.selector,
+        "",
+        this.label,
+        options?.timeout,
+        undefined,
+        true,
+        options?.signal
+      )
     );
   }
 
@@ -546,13 +583,18 @@ export class LocatorImpl {
     eventInit: object = {},
     options?: LocatorActionOptions
   ) {
-    rejectUnsupportedOptions("dispatchEvent", options, ["timeout"]);
-    await this.ownerPage.dispatchEventSelector(
-      this.selector,
-      type,
-      eventInit,
-      this.label,
-      options?.timeout
+    rejectUnsupportedOptions("dispatchEvent", options, ["signal", "timeout"]);
+    await withAbortPrefix("locator.dispatchEvent", () =>
+      this.ownerPage.dispatchEventSelector(
+        this.selector,
+        type,
+        eventInit,
+        this.label,
+        options?.timeout,
+        undefined,
+        true,
+        options?.signal
+      )
     );
   }
 
@@ -562,62 +604,102 @@ export class LocatorImpl {
   ) {
     rejectUnsupportedOptions("selectOption", options, [
       "noWaitAfter",
+      "signal",
       "timeout",
     ]);
-    return this.ownerPage.selectOptionSelector(
-      this.selector,
-      values,
-      this.label,
-      options?.timeout
+    return withAbortPrefix("locator.selectOption", () =>
+      this.ownerPage.selectOptionSelector(
+        this.selector,
+        values,
+        this.label,
+        options?.timeout,
+        undefined,
+        true,
+        options?.signal
+      )
     );
   }
 
   async selectText(options?: LocatorActionOptions) {
-    rejectUnsupportedOptions("selectText", options, ["timeout"]);
-    await this.ownerPage.selectText(
-      this.selector,
-      this.label,
-      options?.timeout
+    rejectUnsupportedOptions("selectText", options, ["signal", "timeout"]);
+    await withAbortPrefix("locator.selectText", () =>
+      this.ownerPage.selectText(
+        this.selector,
+        this.label,
+        options?.timeout,
+        undefined,
+        options?.signal
+      )
     );
   }
 
   async scrollIntoViewIfNeeded(options?: LocatorActionOptions) {
-    rejectUnsupportedOptions("scrollIntoViewIfNeeded", options, ["timeout"]);
-    await this.ownerPage.scrollLocatorIntoView(
-      this.selector,
-      this.label,
-      options?.timeout
+    rejectUnsupportedOptions("scrollIntoViewIfNeeded", options, [
+      "signal",
+      "timeout",
+    ]);
+    await withAbortPrefix("locator.scrollIntoViewIfNeeded", () =>
+      this.ownerPage.scrollLocatorIntoView(
+        this.selector,
+        this.label,
+        options?.timeout,
+        undefined,
+        options?.signal
+      )
     );
   }
 
-  async type(text: string, options: LocatorTypeOptions = {}): Promise<void> {
-    rejectUnsupportedOptions("type", options, [
-      "delay",
-      "noWaitAfter",
-      "timeout",
-    ]);
-    await this.ownerPage.type(this.selector, text, options, this.label, true);
+  async type(
+    text: string,
+    options: LocatorKeyboardInputOptions = {}
+  ): Promise<void> {
+    await withAbortPrefix("locator.type", () => this.typeText(text, options));
   }
 
   async pressSequentially(
     text: string,
-    options: LocatorTypeOptions = {}
+    options: LocatorKeyboardInputOptions = {}
   ): Promise<void> {
-    await this.type(text, options);
+    await withAbortPrefix("locator.pressSequentially", () =>
+      this.typeText(text, options)
+    );
+  }
+
+  private async typeText(text: string, options: LocatorKeyboardInputOptions) {
+    rejectUnsupportedOptions("type", options, [
+      "delay",
+      "noWaitAfter",
+      "signal",
+      "timeout",
+    ]);
+    await this.ownerPage.typeSelector(
+      this.selector,
+      text,
+      options,
+      this.label,
+      true
+    );
   }
 
   async waitFor(
     options: {
+      signal?: AbortSignal;
       state?: "attached" | "detached" | "visible" | "hidden";
       timeout?: number;
     } = {}
   ) {
     const state = options.state ?? "visible";
-    rejectUnsupportedOptions("waitFor", options, ["state", "timeout"]);
-    await this.ownerPage.waitForState(
-      this.selector,
-      { state, timeout: options.timeout },
-      this.label
+    rejectUnsupportedOptions("waitFor", options, [
+      "signal",
+      "state",
+      "timeout",
+    ]);
+    await withAbortPrefix("locator.waitFor", () =>
+      this.ownerPage.waitForState(
+        this.selector,
+        { signal: options.signal, state, timeout: options.timeout },
+        this.label
+      )
     );
   }
 }
@@ -691,12 +773,13 @@ export function resolveLocatorElements(value: unknown): Element[] {
 
 // ── Helpers ─────────────────────────────────────────────────────────
 
+/** Returns the normalized `delay`, unwrapped like the pointer options. */
 function rejectUnsupportedOptions(
   method: string,
   options: Record<string, unknown> | undefined,
   supported: string[] = []
-): void {
-  if (!options) return;
+): number | undefined {
+  if (!options) return undefined;
   const unsupported = Object.keys(options).filter(
     (key) => options[key] !== undefined && !supported.includes(key)
   );
@@ -705,8 +788,10 @@ function rejectUnsupportedOptions(
       `${method}(): unsupported Playwright option(s): ${unsupported.join(", ")}.`
     );
   }
+  validateSignal(method, options.signal);
   if (supported.includes("noWaitAfter"))
     validateNoWaitAfter(method, options.noWaitAfter);
+  return supported.includes("delay") ? validateDelay(options.delay) : undefined;
 }
 
 function cssObjectToString(style: Record<string, string | number>): string {

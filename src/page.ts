@@ -11,7 +11,12 @@ import {
   DEFAULT_TEST_ID_ATTRIBUTE,
 } from "./injected";
 import { AdapterTimeoutError } from "./errors";
-import { validateNoWaitAfter, validateString } from "./protocolValidation";
+import {
+  validateDelay,
+  validateNoWaitAfter,
+  validateSignal,
+  validateString,
+} from "./protocolValidation";
 import { AdapterElementHandle } from "./elementHandle";
 import { inputFilePayloads, type InputFiles } from "./inputFiles";
 import { keyboardLayout, type KeyboardKeyDescription } from "./keyboardLayout";
@@ -62,7 +67,11 @@ const DEFAULT_QUERY_TIMEOUT = 0;
 const QUERY_RETRY_DELAY = 50;
 
 type ActionPoint = { x: number; y: number };
-type ActionDeadline = { timeout: number; expiresAt: number };
+type ActionDeadline = {
+  timeout: number;
+  expiresAt: number;
+  signal?: AbortSignal;
+};
 type ActionTarget = { element: Element; point: ActionPoint };
 
 export type SelectorQueryOptions = {
@@ -74,19 +83,21 @@ export type SelectorQueryOptions = {
 export type LocatorQueryOptions = Omit<SelectorQueryOptions, "strict">;
 
 type WaitForSelectorOptions = {
+  signal?: AbortSignal;
   state?: "attached" | "detached" | "visible" | "hidden";
   strict?: boolean;
   timeout?: number;
 };
 
-type PageActionOptions = { timeout?: number };
+type PageActionOptions = { signal?: AbortSignal; timeout?: number };
 type PageActionWithNoWaitAfterOptions = PageActionOptions & {
   noWaitAfter?: boolean;
 };
 type PageStrictActionOptions = PageActionOptions & { strict?: boolean };
 type PageStrictActionWithNoWaitAfterOptions = PageStrictActionOptions &
   PageActionWithNoWaitAfterOptions;
-type PageTypeOptions = PageStrictActionWithNoWaitAfterOptions & {
+/** Shared by `press` and `type`, which take the same options. */
+type PageKeyboardInputOptions = PageStrictActionWithNoWaitAfterOptions & {
   delay?: number;
 };
 type PageSetInputFilesOptions = PageActionWithNoWaitAfterOptions & {
@@ -373,7 +384,9 @@ export class PageImpl {
     selector: string,
     options: WaitForSelectorOptions = {}
   ): Promise<AdapterElementHandle | null> {
-    return await this.waitForSelectorInRoot(this.document, selector, options);
+    return await withAbortPrefix("page.waitForSelector", () =>
+      this.waitForSelectorInRoot(this.document, selector, options)
+    );
   }
 
   async waitForSelectorWithinElement(
@@ -542,6 +555,7 @@ export class PageImpl {
       | "setChecked" = action
   ): Promise<void> {
     try {
+      this.attachActionSignal(deadline, options.signal);
       while (true) {
         this.assertActionDeadline(deadline, action);
         try {
@@ -688,8 +702,10 @@ export class PageImpl {
     label: string,
     timeout?: number,
     deadline = this.createActionDeadline(timeout),
-    strict = true
+    strict = true,
+    signal?: AbortSignal
   ) {
+    this.attachActionSignal(deadline, signal);
     const { element } = await this.retryActionability(
       selector,
       label,
@@ -731,19 +747,22 @@ export class PageImpl {
     label: string,
     timeout?: number,
     deadline = this.createActionDeadline(timeout),
-    strict = true
+    strict = true,
+    signal?: AbortSignal,
+    delay?: number
   ) {
+    this.attachActionSignal(deadline, signal);
     const element = await this.query(
       selector,
       label,
-      { timeout },
+      { signal, timeout },
       strict,
       (candidate) => candidate,
       deadline
     );
     this.assertActionDeadline(deadline, "press");
     this.focusElement(element);
-    await this.keyboard.press(key, {}, deadline);
+    await this.keyboard.press(key, { delay }, deadline);
   }
 
   async focusSelector(
@@ -816,8 +835,10 @@ export class PageImpl {
     label: string,
     timeout?: number,
     deadline = this.createActionDeadline(timeout),
-    strict = true
+    strict = true,
+    signal?: AbortSignal
   ): Promise<string[]> {
+    this.attachActionSignal(deadline, signal);
     const normalized =
       values === null ? [] : Array.isArray(values) ? values : [values];
     const options = normalized.map((value) =>
@@ -858,7 +879,20 @@ export class PageImpl {
           `select option: Timeout ${deadline.timeout}ms exceeded. ${lastError.message}`,
           { cause: lastError }
         );
-      await this.wait(Math.min(ACTION_RETRY_DELAY, remaining));
+      try {
+        await this.waitWithinActionDeadline(
+          Math.min(ACTION_RETRY_DELAY, remaining),
+          deadline,
+          "select option"
+        );
+      } catch (error) {
+        if (error instanceof AdapterTimeoutError)
+          throw new AdapterTimeoutError(
+            `select option: Timeout ${deadline.timeout}ms exceeded. ${lastError.message}`,
+            { cause: lastError }
+          );
+        throw error;
+      }
     }
   }
 
@@ -866,8 +900,10 @@ export class PageImpl {
     selector: string,
     label: string,
     timeout?: number,
-    deadline = this.createActionDeadline(timeout)
+    deadline = this.createActionDeadline(timeout),
+    signal?: AbortSignal
   ): Promise<void> {
+    this.attachActionSignal(deadline, signal);
     const { element } = await this.retryActionability(
       selector,
       label,
@@ -886,8 +922,10 @@ export class PageImpl {
     selector: string,
     label: string,
     timeout?: number,
-    deadline = this.createActionDeadline(timeout)
+    deadline = this.createActionDeadline(timeout),
+    signal?: AbortSignal
   ): Promise<void> {
+    this.attachActionSignal(deadline, signal);
     const { element } = await this.retryActionability(
       selector,
       label,
@@ -903,6 +941,7 @@ export class PageImpl {
   async waitForState(
     selector: string,
     options: {
+      signal?: AbortSignal;
       state: "attached" | "detached" | "visible" | "hidden";
       timeout?: number;
     },
@@ -915,6 +954,7 @@ export class PageImpl {
     try {
       await this.waitForSelectorInRoot(this.document, selector, {
         state: options.state,
+        signal: options.signal,
         strict: true,
         timeout: options.timeout,
       });
@@ -941,10 +981,11 @@ export class PageImpl {
       throw new TypeError("setInputFiles strict must be a boolean");
     const payloads = inputFilePayloads(files);
     const deadline = this.createActionDeadline(options.timeout);
+    this.attachActionSignal(deadline, options.signal);
     await this.query(
       selector,
       selector,
-      { timeout: options.timeout },
+      { signal: options.signal, timeout: options.timeout },
       strict || options.strict === true,
       (element) => {
         this.assertActionDeadline(deadline, "setInputFiles");
@@ -1061,7 +1102,7 @@ export class PageImpl {
   ): Promise<boolean> {
     assertQueryOptions(options, true);
     this.resolveTimeout(options?.timeout, DEFAULT_QUERY_TIMEOUT);
-    if (options?.signal?.aborted) throw queryAborted(options.signal);
+    if (options?.signal?.aborted) throw actionAborted(options.signal, false);
 
     const element = options?.strict
       ? this.resolveLocatorElement(selector, true)
@@ -1094,13 +1135,16 @@ export class PageImpl {
     options?: PageStrictActionWithNoWaitAfterOptions
   ): Promise<void> {
     assertPageActionOptions("fill", options, ["noWaitAfter", "strict"]);
-    await this.fillSelector(
-      selector,
-      value,
-      `page.fill(${JSON.stringify(selector)})`,
-      options?.timeout,
-      undefined,
-      options?.strict === true
+    await withAbortPrefix("page.fill", () =>
+      this.fillSelector(
+        selector,
+        value,
+        `page.fill(${JSON.stringify(selector)})`,
+        options?.timeout,
+        undefined,
+        options?.strict === true,
+        options?.signal
+      )
     );
   }
 
@@ -1109,42 +1153,69 @@ export class PageImpl {
     files: InputFiles,
     options?: PageSetInputFilesOptions
   ): Promise<void> {
-    await this.setInputFilesSelector(selector, files, options);
+    await withAbortPrefix("page.setInputFiles", () =>
+      this.setInputFilesSelector(selector, files, options)
+    );
   }
 
   async press(
     selector: string,
     key: string,
-    options?: PageStrictActionWithNoWaitAfterOptions
+    options?: PageKeyboardInputOptions
   ): Promise<void> {
-    assertPageActionOptions("press", options, ["noWaitAfter", "strict"]);
-    await this.pressSelector(
-      selector,
-      key,
-      `page.press(${JSON.stringify(selector)})`,
-      options?.timeout,
-      undefined,
-      options?.strict === true
+    const delay = assertPageActionOptions("press", options, [
+      "delay",
+      "noWaitAfter",
+      "strict",
+    ]);
+    await withAbortPrefix("page.press", () =>
+      this.pressSelector(
+        selector,
+        key,
+        `page.press(${JSON.stringify(selector)})`,
+        options?.timeout,
+        undefined,
+        options?.strict === true,
+        options?.signal,
+        delay
+      )
     );
   }
 
   async type(
     selector: string,
     text: string,
-    options?: PageTypeOptions,
-    label = `page.type(${JSON.stringify(selector)})`,
-    strict = options?.strict === true
+    options?: PageKeyboardInputOptions
   ): Promise<void> {
-    assertPageActionOptions("type", options, [
+    await withAbortPrefix("page.type", () =>
+      this.typeSelector(
+        selector,
+        text,
+        options,
+        `page.type(${JSON.stringify(selector)})`,
+        options?.strict === true
+      )
+    );
+  }
+
+  async typeSelector(
+    selector: string,
+    text: string,
+    options: PageKeyboardInputOptions | undefined,
+    label: string,
+    strict: boolean
+  ): Promise<void> {
+    const delay = assertPageActionOptions("type", options, [
       "delay",
       "noWaitAfter",
       "strict",
     ]);
     const deadline = this.createActionDeadline(options?.timeout);
+    this.attachActionSignal(deadline, options?.signal);
     await this.query(
       selector,
       label,
-      { timeout: options?.timeout },
+      { signal: options?.signal, timeout: options?.timeout },
       strict,
       (element) => {
         const result = this.actionableInjected.focusNode(element, true);
@@ -1153,7 +1224,7 @@ export class PageImpl {
       },
       deadline
     );
-    await this.keyboard.type(text, { delay: options?.delay }, deadline);
+    await this.keyboard.type(text, { delay }, deadline);
   }
 
   async focus(
@@ -1161,11 +1232,13 @@ export class PageImpl {
     options?: PageStrictActionOptions
   ): Promise<void> {
     assertPageActionOptions("focus", options, ["strict"]);
-    await this.focusSelector(
-      selector,
-      `page.focus(${JSON.stringify(selector)})`,
-      { timeout: options?.timeout },
-      options?.strict === true
+    await withAbortPrefix("page.focus", () =>
+      this.focusSelector(
+        selector,
+        `page.focus(${JSON.stringify(selector)})`,
+        { signal: options?.signal, timeout: options?.timeout },
+        options?.strict === true
+      )
     );
   }
 
@@ -1185,13 +1258,16 @@ export class PageImpl {
     options?: PageStrictActionWithNoWaitAfterOptions
   ): Promise<string[]> {
     assertPageActionOptions("selectOption", options, ["noWaitAfter", "strict"]);
-    return this.selectOptionSelector(
-      selector,
-      values,
-      `page.selectOption(${JSON.stringify(selector)})`,
-      options?.timeout,
-      undefined,
-      options?.strict === true
+    return withAbortPrefix("page.selectOption", () =>
+      this.selectOptionSelector(
+        selector,
+        values,
+        `page.selectOption(${JSON.stringify(selector)})`,
+        options?.timeout,
+        undefined,
+        options?.strict === true,
+        options?.signal
+      )
     );
   }
 
@@ -1247,14 +1323,17 @@ export class PageImpl {
     options?: PageDispatchEventOptions
   ): Promise<void> {
     assertPageDispatchEventOptions(options);
-    await this.dispatchEventSelector(
-      selector,
-      type,
-      eventInit,
-      `page.dispatchEvent(${JSON.stringify(selector)})`,
-      options?.timeout,
-      undefined,
-      options?.strict === true
+    await withAbortPrefix("page.dispatchEvent", () =>
+      this.dispatchEventSelector(
+        selector,
+        type,
+        eventInit,
+        `page.dispatchEvent(${JSON.stringify(selector)})`,
+        options?.timeout,
+        undefined,
+        options?.strict === true,
+        options?.signal
+      )
     );
   }
 
@@ -1265,12 +1344,14 @@ export class PageImpl {
     label: string,
     timeout?: number,
     deadline = this.createActionDeadline(timeout),
-    strict = true
+    strict = true,
+    signal?: AbortSignal
   ): Promise<void> {
+    this.attachActionSignal(deadline, signal);
     await this.query(
       selector,
       label,
-      { timeout },
+      { signal, timeout },
       strict,
       (element) =>
         this.actionableInjected.dispatchEvent(element, type, eventInit),
@@ -1373,7 +1454,7 @@ export class PageImpl {
    */
   async ariaSnapshot(options: AriaSnapshotOptions = {}): Promise<string> {
     assertAriaSnapshotOptions(options);
-    if (options.signal?.aborted) throw queryAborted(options.signal);
+    if (options.signal?.aborted) throw actionAborted(options.signal, false);
     // Protocol evaluation naturally waits for a parser-blocking resource to
     // yield. An in-process adapter call does not cross that task boundary.
     await this.waitForDocumentParser(options);
@@ -1411,7 +1492,7 @@ export class PageImpl {
         else resolve();
       };
       const ready = () => settle();
-      const aborted = () => settle(queryAborted(options.signal!));
+      const aborted = () => settle(actionAborted(options.signal!, true));
 
       this.window.addEventListener("DOMContentLoaded", ready, { once: true });
       options.signal?.addEventListener("abort", aborted, { once: true });
@@ -1703,10 +1784,19 @@ export class PageImpl {
     };
   }
 
+  private attachActionSignal(
+    deadline: ActionDeadline,
+    signal: AbortSignal | undefined
+  ) {
+    deadline.signal = signal;
+    if (signal?.aborted) throw actionAborted(signal, false);
+  }
+
   private assertActionDeadline(
     deadline: ActionDeadline | undefined,
     actionName: string
   ) {
+    if (deadline?.signal?.aborted) throw actionAborted(deadline.signal, true);
     if (deadline && Date.now() >= deadline.expiresAt)
       throw new AdapterTimeoutError(
         `${actionName}: Timeout ${deadline.timeout}ms exceeded.`
@@ -1717,6 +1807,15 @@ export class PageImpl {
     this.assertActionDeadline(deadline, "press");
   }
 
+  // Pinned Keyboard.press/type delay through progress.wait, which races the
+  // timer against the abort. The pointer path already waits that way here.
+  async waitKeyboardDelay(
+    durationMs: number | undefined,
+    deadline: ActionDeadline | undefined
+  ) {
+    await this.waitWithinActionDeadline(durationMs, deadline, "press");
+  }
+
   private async waitWithinActionDeadline(
     durationMs: number | undefined,
     deadline: ActionDeadline | undefined,
@@ -1725,7 +1824,13 @@ export class PageImpl {
     this.assertActionDeadline(deadline, actionName);
     if (!durationMs || durationMs <= 0) return;
     const remaining = deadline ? deadline.expiresAt - Date.now() : durationMs;
-    await this.wait(Math.min(durationMs, remaining));
+    const completed = await waitForExpectationRetry(
+      this.window,
+      Math.min(durationMs, remaining),
+      deadline?.signal
+    );
+    if (!completed && deadline?.signal)
+      throw actionAborted(deadline.signal, true);
     this.assertActionDeadline(deadline, actionName);
   }
 
@@ -1848,7 +1953,7 @@ export class PageImpl {
   ): boolean {
     assertQueryOptions(options, false);
     this.resolveTimeout(options?.timeout, DEFAULT_QUERY_TIMEOUT);
-    if (options?.signal?.aborted) throw queryAborted(options.signal);
+    if (options?.signal?.aborted) throw actionAborted(options.signal, false);
 
     const element = this.resolveLocatorElement(selector, true);
     if (!element) return false;
@@ -1871,7 +1976,7 @@ export class PageImpl {
     options: AriaSnapshotOptions = {}
   ): Promise<string> {
     assertAriaSnapshotOptions(options);
-    if (options.signal?.aborted) throw queryAborted(options.signal);
+    if (options.signal?.aborted) throw actionAborted(options.signal, false);
 
     // The pinned server only auto-waits for the default locator snapshot.
     // AI-mode snapshots retain their immediate single-document behavior.
@@ -2012,6 +2117,8 @@ export class PageImpl {
       DEFAULT_ACTION_TIMEOUT
     );
     const deadline = timeout === 0 ? Infinity : Date.now() + timeout;
+    const signal = options.signal;
+    if (signal?.aborted) throw actionAborted(signal, false);
 
     while (true) {
       const element =
@@ -2032,7 +2139,9 @@ export class PageImpl {
         throw new AdapterTimeoutError(
           `page.waitForSelector: Timeout ${timeout}ms exceeded.\nCall log:\n  - waiting for ${formatLocator(selector)} to be ${state}`
         );
-      await this.wait(Math.min(QUERY_RETRY_DELAY, deadline - Date.now()));
+      const delay = Math.min(QUERY_RETRY_DELAY, deadline - Date.now());
+      if (!(await waitForExpectationRetry(this.window, delay, signal)))
+        throw actionAborted(signal!, true);
     }
   }
 
@@ -2077,7 +2186,7 @@ export class PageImpl {
       actionDeadline?.timeout ??
       this.resolveTimeout(options?.timeout, DEFAULT_QUERY_TIMEOUT);
     const signal = options?.signal;
-    if (signal?.aborted) throw queryAborted(signal);
+    if (signal?.aborted) throw actionAborted(signal, false);
     const deadline =
       actionDeadline?.expiresAt ??
       (timeout === 0 ? Infinity : Date.now() + timeout);
@@ -2101,7 +2210,7 @@ export class PageImpl {
           );
         const delay = Math.min(QUERY_RETRY_DELAY, remaining);
         if (!(await waitForExpectationRetry(this.window, delay, signal)))
-          throw queryAborted(signal!);
+          throw actionAborted(signal!, true);
       }
     }
   }
@@ -2145,23 +2254,32 @@ export class PageImpl {
     deadline: ActionDeadline | undefined,
     timeoutError: () => Error
   ): Promise<T> {
-    if (!deadline || deadline.expiresAt === Infinity) return operation;
-    if (Date.now() >= deadline.expiresAt) throw timeoutError();
+    if (deadline?.signal?.aborted) throw actionAborted(deadline.signal, true);
+    // An expired deadline is the caller's timeout, described by the caller.
+    if (deadline && Date.now() >= deadline.expiresAt) throw timeoutError();
+    if (!deadline) return operation;
 
     let timeoutHandle: number | undefined;
+    let onAbort: (() => void) | undefined;
     try {
       return await new Promise<T>((resolve, reject) => {
         // Pinned stability checks wait for requestAnimationFrame. They only
         // inspect an element, so ending our await cannot cause a late input
         // action; the pinned primitive exposes no cancellation handle.
-        timeoutHandle = this.window.setTimeout(
-          () => reject(timeoutError()),
-          Math.max(0, deadline.expiresAt - Date.now())
-        );
+        if (deadline.expiresAt !== Infinity)
+          timeoutHandle = this.window.setTimeout(
+            () => reject(timeoutError()),
+            Math.max(0, deadline.expiresAt - Date.now())
+          );
+        if (deadline.signal) {
+          onAbort = () => reject(actionAborted(deadline.signal!, true));
+          deadline.signal.addEventListener("abort", onAbort, { once: true });
+        }
         operation.then(resolve, reject);
       });
     } finally {
       if (timeoutHandle !== undefined) this.window.clearTimeout(timeoutHandle);
+      if (onAbort) deadline.signal?.removeEventListener("abort", onAbort);
     }
   }
 
@@ -2291,7 +2409,16 @@ export class PageImpl {
           if (log.length > 60) log.splice(0, log.length - 60);
         }
         if (remaining <= 0) throw timeoutError();
-        await this.wait(Math.min(delay, remaining));
+        try {
+          await this.waitWithinActionDeadline(
+            Math.min(delay, remaining),
+            deadline,
+            actionName
+          );
+        } catch (error) {
+          if (error instanceof AdapterTimeoutError) throw timeoutError();
+          throw error;
+        }
       }
     }
   }
@@ -3152,7 +3279,7 @@ class BrowserKeyboard {
       if (keyboardLayout.has(character))
         await this.press(character, { delay }, deadline);
       else {
-        if (delay) await this.wait(delay, deadline);
+        if (delay) await this.page.waitKeyboardDelay(delay, deadline);
         await this.insertText(character, deadline);
       }
     }
@@ -3165,13 +3292,46 @@ class BrowserKeyboard {
   ): Promise<void> {
     const tokens = splitKeyboardShortcut(key);
     const target = tokens.at(-1)!;
-    for (const modifier of tokens.slice(0, -1))
-      await this.down(modifier, deadline);
-    await this.down(target, deadline);
-    if (options.delay) await this.wait(options.delay, deadline);
-    await this.up(target, deadline);
-    for (const modifier of tokens.slice(0, -1).reverse())
-      await this.up(modifier, deadline);
+    const modifiers = tokens.slice(0, -1);
+    // The pinned Keyboard leaves a key down when the progress aborts during
+    // the delay, because the controlled browser owns the real key state.
+    // Here these sets are the only key state, so an interrupted press
+    // releases what it pressed instead of leaking a repeat or a stuck
+    // modifier into later operations. Cleanup dispatches no keyup, keeping
+    // the aborted press's event sequence identical to the pinned one.
+    const held = new Set<string>();
+    try {
+      for (const modifier of modifiers) {
+        held.add(modifier);
+        await this.down(modifier, deadline);
+      }
+      held.add(target);
+      await this.down(target, deadline);
+      if (options.delay)
+        await this.page.waitKeyboardDelay(options.delay, deadline);
+      await this.up(target, deadline);
+      held.delete(target);
+      for (const modifier of modifiers.reverse()) {
+        await this.up(modifier, deadline);
+        held.delete(modifier);
+      }
+    } catch (error) {
+      this.releaseKeys(held);
+      throw error;
+    }
+  }
+
+  private releaseKeys(keys: Iterable<string>): void {
+    for (const key of keys) {
+      const description = keyboardLayout.get(
+        resolveKeyboardKey(key, this.page.window)
+      );
+      if (!description) continue;
+      this.pressedKeys.delete(description.code);
+      this.keydownState.delete(description.code);
+      if (isModifier(description.key))
+        this.pressedModifiers.delete(description.key);
+    }
   }
 
   private async downForTarget(
@@ -3288,19 +3448,6 @@ class BrowserKeyboard {
     )
       return { ...description, text: "" };
     return description;
-  }
-
-  private async wait(delay: number, deadline?: ActionDeadline): Promise<void> {
-    this.page.checkKeyboardActionDeadline(deadline);
-    const remaining = deadline
-      ? Math.max(0, deadline.expiresAt - Date.now())
-      : delay;
-    if (deadline && remaining <= 0)
-      this.page.checkKeyboardActionDeadline(deadline);
-    await new Promise<void>((resolve) =>
-      this.page.window.setTimeout(resolve, Math.min(delay, remaining))
-    );
-    this.page.checkKeyboardActionDeadline(deadline);
   }
 
   private async waitForKeyboardPhase(deadline?: ActionDeadline): Promise<void> {
@@ -3480,15 +3627,17 @@ function validateTimeout(timeout: unknown, name: string): number {
   return timeout;
 }
 
+/** Returns the normalized `delay`, unwrapped like the pointer options. */
 function assertPageActionOptions(
   method: string,
   options: Record<string, unknown> | undefined,
   supported: string[] = []
-): void {
-  if (!options) return;
+): number | undefined {
+  if (!options) return undefined;
   const unsupported = Object.keys(options).filter(
     (key) =>
       options[key] !== undefined &&
+      key !== "signal" &&
       key !== "timeout" &&
       !supported.includes(key)
   );
@@ -3497,16 +3646,21 @@ function assertPageActionOptions(
       `${method}(): unsupported options: ${unsupported.join(", ")}. ` +
         `Unsupported Playwright option(s) are not supported by the single-document adapter.`
     );
+  validateSignal(method, options.signal);
   if (options.timeout !== undefined)
     validateTimeout(options.timeout, `${method} timeout`);
   if (supported.includes("noWaitAfter"))
     validateNoWaitAfter(method, options.noWaitAfter);
+  const delay = supported.includes("delay")
+    ? validateDelay(options.delay)
+    : undefined;
   if (
     supported.includes("strict") &&
     options.strict !== undefined &&
     typeof options.strict !== "boolean"
   )
     throw new TypeError(`${method} strict must be a boolean`);
+  return delay;
 }
 
 type PageDispatchEventOptions = PageActionOptions & { strict?: boolean };
@@ -3524,6 +3678,7 @@ function assertPointerActionOptions(
   options: PointerActionOptions | undefined
 ): PointerActionOptions {
   const supported = [
+    "signal",
     "noWaitAfter",
     "position",
     "trial",
@@ -3604,8 +3759,7 @@ function assertPointerActionOptions(
 
 function assertAriaSnapshotOptions(options: AriaSnapshotOptions) {
   queryTimeout(options.timeout);
-  if (options.signal !== undefined && !(options.signal instanceof AbortSignal))
-    throw new TypeError("ARIA snapshot signal must be an AbortSignal");
+  validateSignal("ARIA snapshot", options.signal);
 }
 
 function assertQueryOptions(
@@ -3621,8 +3775,7 @@ function assertQueryOptions(
     )
       throw new Error(`Unsupported query option: ${key}`);
   }
-  if (options.signal !== undefined && !(options.signal instanceof AbortSignal))
-    throw new TypeError("Query signal must be an AbortSignal");
+  validateSignal("Query", options.signal);
   if (!allowsStrict && "strict" in options)
     throw new Error("Locator query options do not support strict");
 }
@@ -3639,12 +3792,14 @@ function assertWaitForSelectorOptions(
 ) {
   for (const key of Object.keys(options)) {
     if (
+      key !== "signal" &&
       key !== "state" &&
       key !== "timeout" &&
       !(allowsStrict && key === "strict")
     )
       throw new Error(`Unsupported waitForSelector option: ${key}`);
   }
+  validateSignal("waitForSelector", options.signal);
   if (!allowsStrict && "strict" in options)
     throw new Error("ElementHandle waitForSelector does not support strict");
   if (
@@ -3705,8 +3860,34 @@ function presentOriginalXPath(error: unknown, selector: string): Error {
   return new Error(rewritten, { cause: source });
 }
 
-function queryAborted(signal: AbortSignal): Error {
-  return new Error(`Query was aborted: ${abortReason(signal)}`);
+function actionAborted(signal: AbortSignal, inFlight: boolean): Error {
+  const reason = abortReason(signal);
+  const error = new Error(
+    inFlight
+      ? `${reason}\nCall log:\n  - operation was aborted: ${reason}`
+      : "The operation was aborted",
+    { cause: signal.reason }
+  );
+  error.name = "AbortError";
+  return error;
+}
+
+export async function withAbortPrefix<T>(
+  apiName: string,
+  run: () => Promise<T>
+): Promise<T> {
+  try {
+    return await run();
+  } catch (error) {
+    throw prefixAbortError(error, apiName);
+  }
+}
+
+function prefixAbortError(error: unknown, apiName: string): unknown {
+  const result = asError(error);
+  if (result.name !== "AbortError") return error;
+  result.message = `${apiName}: ${result.message}`;
+  return result;
 }
 
 function unknownKey(value: string): never {

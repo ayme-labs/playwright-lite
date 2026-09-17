@@ -41,9 +41,15 @@ describe("Single-document adapter contract", () => {
       const aborted = new AbortController();
       aborted.abort("stop snapshot");
 
-      await expect(
-        (page as any).ariaSnapshot({ signal: aborted.signal })
-      ).rejects.toThrow("Query was aborted: stop snapshot");
+      const preAbortedError = await (page as any)
+        .ariaSnapshot({ signal: aborted.signal })
+        .then(
+          () => undefined,
+          (error: Error) => error
+        );
+      expect(preAbortedError?.name).toBe("AbortError");
+      expect(preAbortedError?.message).toBe("The operation was aborted");
+      expect(preAbortedError?.cause).toBe("stop snapshot");
 
       document.body.innerHTML = "";
       window.setTimeout(
@@ -56,11 +62,18 @@ describe("Single-document adapter contract", () => {
 
       const cancelled = new AbortController();
       window.setTimeout(() => cancelled.abort("cancel snapshot"), 10);
-      await expect(
-        (page as any)
-          .locator("#missing")
-          .ariaSnapshot({ timeout: 100, signal: cancelled.signal })
-      ).rejects.toThrow("Query was aborted: cancel snapshot");
+      const inFlightError = await (page as any)
+        .locator("#missing")
+        .ariaSnapshot({ timeout: 100, signal: cancelled.signal })
+        .then(
+          () => undefined,
+          (error: Error) => error
+        );
+      expect(inFlightError?.name).toBe("AbortError");
+      expect(inFlightError?.message).toBe(
+        "cancel snapshot\nCall log:\n  - operation was aborted: cancel snapshot"
+      );
+      expect(inFlightError?.cause).toBe("cancel snapshot");
     });
   });
 
@@ -129,14 +142,21 @@ describe("Single-document adapter contract", () => {
 
       const cancelled = new AbortController();
       window.setTimeout(() => cancelled.abort("cancel evaluate"), 10);
-      await expect(
-        page
-          .locator("#missing")
-          .evaluate((element) => element.textContent, undefined, {
-            timeout: 100,
-            signal: cancelled.signal,
-          })
-      ).rejects.toThrow("Query was aborted: cancel evaluate");
+      const inFlightError = await page
+        .locator("#missing")
+        .evaluate((element) => element.textContent, undefined, {
+          timeout: 100,
+          signal: cancelled.signal,
+        })
+        .then(
+          () => undefined,
+          (error: Error) => error
+        );
+      expect(inFlightError?.name).toBe("AbortError");
+      expect(inFlightError?.message).toBe(
+        "cancel evaluate\nCall log:\n  - operation was aborted: cancel evaluate"
+      );
+      expect(inFlightError?.cause).toBe("cancel evaluate");
     });
   });
 
@@ -698,12 +718,12 @@ describe("Single-document adapter contract", () => {
   // ── AC4: unsupported options rejection ────────────────────────
 
   describe("unsupported options", () => {
-    it("click rejects unsupported options", async () => {
+    it("click validates the signal option", async () => {
       document.body.innerHTML = "<button>ok</button>";
       const page = createPage();
       await expect(
         page.locator("button").click({ signal: true } as any)
-      ).rejects.toThrow(/unsupported Playwright option.*signal/);
+      ).rejects.toThrow(/click signal must be an AbortSignal/);
     });
 
     it("ignores unsupported options whose values are undefined", async () => {
@@ -718,13 +738,34 @@ describe("Single-document adapter contract", () => {
       expect(clicks).toBe(1);
     });
 
-    it("rejects defined unsupported option values, including false and null", async () => {
+    it("rejects invalid signal values, including false and null", async () => {
       document.body.innerHTML = "<button>ok</button>";
       const page = createPage();
       for (const signal of [false, null]) {
         await expect(
           page.locator("button").click({ signal } as any)
-        ).rejects.toThrow(/unsupported Playwright option.*signal/);
+        ).rejects.toThrow(/click signal must be an AbortSignal/);
+      }
+    });
+
+    it("validates focus and blur options like the sibling actions", async () => {
+      document.body.innerHTML = '<div id="d" tabindex="0">d</div>';
+      const page = createPage();
+      const locator = page.locator("#d");
+      const actions: [string, (options: unknown) => Promise<void>][] = [
+        ["focus", (options) => locator.focus(options as any)],
+        ["blur", (options) => locator.blur(options as any)],
+      ];
+
+      for (const [method, run] of actions) {
+        await expect(run({ signal: true }), method).rejects.toThrow(
+          new RegExp(`${method} signal must be an AbortSignal`)
+        );
+        await expect(run({ force: true }), method).rejects.toThrow(
+          new RegExp(
+            `${method}\\(\\): unsupported Playwright option\\(s\\): force`
+          )
+        );
       }
     });
 
@@ -736,12 +777,32 @@ describe("Single-document adapter contract", () => {
       ).rejects.toThrow(/unsupported Playwright option.*force/);
     });
 
-    it("press rejects unsupported options", async () => {
-      document.body.innerHTML = '<input type="text" />';
+    it("rejects a non-numeric press or type delay", async () => {
+      document.body.innerHTML = '<input id="input" type="text" />';
       const page = createPage();
-      await expect(
-        page.locator("input").press("a", { delay: 100 } as any)
-      ).rejects.toThrow(/unsupported Playwright option.*delay/);
+      const locator = page.locator("#input");
+      const actions: [string, () => Promise<unknown>][] = [
+        ["page.press", () => page.press("#input", "a", { delay: "x" } as any)],
+        ["page.type", () => page.type("#input", "a", { delay: "x" } as any)],
+        ["locator.press", () => locator.press("a", { delay: "x" } as any)],
+        ["locator.type", () => locator.type("a", { delay: "x" } as any)],
+        [
+          "locator.pressSequentially",
+          () => locator.pressSequentially("a", { delay: "x" } as any),
+        ],
+      ];
+
+      for (const [apiName, run] of actions) {
+        const error = await run().then(
+          () => undefined,
+          (error) => error
+        );
+        expect(error, apiName).toBeInstanceOf(TypeError);
+        expect(error.message, apiName).toBe("delay: expected number");
+      }
+      expect(document.querySelector<HTMLInputElement>("#input")!.value).toBe(
+        ""
+      );
     });
 
     it("forwards explicit timeout through locator terminal actions", async () => {
@@ -904,6 +965,35 @@ describe("Single-document adapter contract", () => {
       expect(events).toEqual([]);
     });
 
+    it("keeps the actionability timeout message when the deadline expires mid-action", async () => {
+      document.body.innerHTML = "<button>ok</button>";
+      const page = createPage();
+      const button = document.querySelector("button") as HTMLButtonElement & {
+        scrollIntoViewIfNeeded?: () => void;
+      };
+      // Burn the deadline between the preflight check and the actionability
+      // wait that follows the scroll.
+      const stall = () => {
+        const end = Date.now() + 400;
+        while (Date.now() < end);
+      };
+      button.scrollIntoViewIfNeeded = stall;
+      button.scrollIntoView = stall;
+
+      const error = await page
+        .locator("button")
+        .click({ timeout: 200 })
+        .then(
+          () => undefined,
+          (error: Error) => error
+        );
+
+      expect(error?.message).not.toContain("action: Timeout");
+      expect(error?.message).toMatch(
+        /^locator\.click: Timeout 200ms exceeded\./
+      );
+    });
+
     it("dispatches an ordered pointer/mouse prefix before one native click", async () => {
       document.body.innerHTML = "<div id=parent><button>go</button></div>";
       const page = createPage();
@@ -1054,7 +1144,7 @@ describe("Single-document adapter contract", () => {
       expect(activations).toBe(3);
       await expect(
         page.locator("#button").dblclick({ signal: true } as any)
-      ).rejects.toThrow("unsupported Playwright option(s): signal");
+      ).rejects.toThrow("dblclick signal must be an AbortSignal");
       await expect(
         page.locator("#button").dblclick({ trial: "yes" } as any)
       ).rejects.toThrow("trial must be a boolean");
@@ -1245,6 +1335,81 @@ describe("Single-document adapter contract", () => {
       expect(
         (document.querySelector("#readonly") as HTMLInputElement).value
       ).toBe("before");
+    });
+
+    it("press accepts the delay option", async () => {
+      document.body.innerHTML = '<input type="text" />';
+      const page = createPage();
+      await page.locator("input").press("a", { delay: 1 });
+      expect(document.querySelector<HTMLInputElement>("input")!.value).toBe(
+        "a"
+      );
+    });
+
+    it("releases pressed keys when an abort interrupts the press delay", async () => {
+      document.body.innerHTML = '<input type="text" />';
+      const page = createPage();
+      const input = document.querySelector("input") as HTMLInputElement;
+      const keydowns: {
+        key: string;
+        repeat: boolean;
+        shiftKey: boolean;
+      }[] = [];
+      input.addEventListener("keydown", (event) =>
+        keydowns.push({
+          key: event.key,
+          repeat: event.repeat,
+          shiftKey: event.shiftKey,
+        })
+      );
+      const reason = new Error("stop");
+      const controller = new AbortController();
+      window.setTimeout(() => controller.abort(reason), 50);
+
+      const started = Date.now();
+      const error = await page
+        .locator("input")
+        .press("Shift+a", {
+          delay: 500,
+          signal: controller.signal,
+          timeout: 0,
+        } as any)
+        .then(
+          () => undefined,
+          (error) => error
+        );
+      const elapsed = Date.now() - started;
+
+      expect(error?.name).toBe("AbortError");
+      expect(error.message).toMatch(/^locator\.press: stop\nCall log:/);
+      expect(error.cause).toBe(reason);
+      expect(elapsed).toBeLessThan(300);
+
+      expect(keydowns).toEqual([
+        { key: "Shift", repeat: false, shiftKey: true },
+        { key: "a", repeat: false, shiftKey: true },
+      ]);
+
+      const typed = input.value;
+      await page.locator("input").press("a");
+      expect(keydowns.at(-1)).toEqual({
+        key: "a",
+        repeat: false,
+        shiftKey: false,
+      });
+      expect(input.value).toBe(`${typed}a`);
+
+      await expect(
+        page
+          .locator("input")
+          .press("Shift+a", { delay: 500, timeout: 50 } as any)
+      ).rejects.toThrow("Timeout 50ms exceeded");
+      await page.locator("input").press("a");
+      expect(keydowns.at(-1)).toEqual({
+        key: "a",
+        repeat: false,
+        shiftKey: false,
+      });
     });
 
     it("presses text, Enter, modifiers, and Space with Playwright-like key details", async () => {
@@ -1911,14 +2076,134 @@ describe("Single-document adapter contract", () => {
         /Timeout 25ms exceeded/
       );
 
+      const preAborted = new AbortController();
+      preAborted.abort("pre-abort");
+      const preAbortedError = await page
+        .locator("#aborted")
+        .getAttribute("name", { signal: preAborted.signal, timeout: 100 })
+        .then(
+          () => undefined,
+          (error: Error) => error
+        );
+      expect(preAbortedError?.name).toBe("AbortError");
+      expect(preAbortedError?.message).toBe("The operation was aborted");
+      expect(preAbortedError?.cause).toBe("pre-abort");
+
       const controller = new AbortController();
       window.setTimeout(() => controller.abort("test abort"), 10);
-      await expect(
-        page.locator("#aborted").getAttribute("name", {
-          signal: controller.signal,
-          timeout: 100,
-        })
-      ).rejects.toThrow(/Query was aborted: test abort/);
+      const inFlightError = await page
+        .locator("#aborted")
+        .getAttribute("name", { signal: controller.signal, timeout: 100 })
+        .then(
+          () => undefined,
+          (error: Error) => error
+        );
+      expect(inFlightError?.name).toBe("AbortError");
+      expect(inFlightError?.message).toBe(
+        "test abort\nCall log:\n  - operation was aborted: test abort"
+      );
+      expect(inFlightError?.cause).toBe("test abort");
+    });
+
+    it("aborts every action with a prefixed AbortError", async () => {
+      document.body.innerHTML =
+        "<select id=select><option>one</option></select>";
+      const page = createPage();
+      const locator = () => page.locator("#never");
+      type Options = { signal: AbortSignal; timeout: number };
+      const actions: [string, (options: Options) => Promise<unknown>][] = [
+        ["page.check", (o) => page.check("#never", o)],
+        ["page.click", (o) => page.click("#never", o)],
+        ["page.dblclick", (o) => page.dblclick("#never", o)],
+        ["page.dispatchEvent", (o) => page.dispatchEvent("#never", "x", {}, o)],
+        ["page.fill", (o) => page.fill("#never", "x", o)],
+        ["page.focus", (o) => page.focus("#never", o)],
+        ["page.hover", (o) => page.hover("#never", o)],
+        ["page.press", (o) => page.press("#never", "a", o)],
+        ["page.selectOption", (o) => page.selectOption("#select", "x", o)],
+        ["page.setChecked", (o) => page.setChecked("#never", true, o)],
+        ["page.setInputFiles", (o) => page.setInputFiles("#never", [], o)],
+        ["page.type", (o) => page.type("#never", "x", o)],
+        ["page.uncheck", (o) => page.uncheck("#never", o)],
+        ["page.waitForSelector", (o) => page.waitForSelector("#never", o)],
+        ["locator.check", (o) => locator().check(o)],
+        ["locator.clear", (o) => locator().clear(o)],
+        ["locator.click", (o) => locator().click(o)],
+        ["locator.dblclick", (o) => locator().dblclick(o)],
+        ["locator.dispatchEvent", (o) => locator().dispatchEvent("x", {}, o)],
+        ["locator.fill", (o) => locator().fill("x", o)],
+        ["locator.focus", (o) => locator().focus(o)],
+        ["locator.hover", (o) => locator().hover(o)],
+        ["locator.press", (o) => locator().press("a", o)],
+        [
+          "locator.pressSequentially",
+          (o) => locator().pressSequentially("x", o),
+        ],
+        [
+          "locator.scrollIntoViewIfNeeded",
+          (o) => locator().scrollIntoViewIfNeeded(o),
+        ],
+        ["locator.selectOption", (o) => locator().selectOption("x", o)],
+        ["locator.selectText", (o) => locator().selectText(o)],
+        ["locator.setChecked", (o) => locator().setChecked(true, o)],
+        ["locator.setInputFiles", (o) => locator().setInputFiles([], o)],
+        ["locator.type", (o) => locator().type("x", o)],
+        ["locator.uncheck", (o) => locator().uncheck(o)],
+        ["locator.waitFor", (o) => locator().waitFor(o)],
+      ];
+
+      for (const [apiName, run] of actions) {
+        for (const inFlight of [false, true]) {
+          const reason = new Error("stop");
+          const controller = new AbortController();
+          if (inFlight) window.setTimeout(() => controller.abort(reason), 10);
+          else controller.abort(reason);
+          const error = await run({
+            signal: controller.signal,
+            timeout: 0,
+          }).then(
+            () => undefined,
+            (error) => error
+          );
+          const context = `${apiName} ${inFlight ? "in-flight" : "pre-aborted"}`;
+          expect(error?.name, context).toBe("AbortError");
+          expect(error.message, context).toMatch(
+            inFlight
+              ? new RegExp(`^${apiName}: stop\\nCall log:`)
+              : `${apiName}: The operation was aborted`
+          );
+          expect(error.cause, context).toBe(reason);
+        }
+      }
+    });
+
+    it("reports a real focus failure that races an abort", async () => {
+      document.body.innerHTML =
+        '<div id="a" tabindex="0"></div><div id="b" tabindex="0"></div>';
+      const page = createPage();
+      const controller = new AbortController();
+      const resolveAll = document.querySelectorAll.bind(document);
+      // Abort while the element is being resolved, so the strict violation and
+      // the aborted signal reach the focus path in the same turn.
+      document.querySelectorAll = ((selector: string) => {
+        controller.abort(new Error("stop"));
+        return resolveAll(selector);
+      }) as typeof document.querySelectorAll;
+
+      try {
+        const error = await page
+          .focus("div", { signal: controller.signal, strict: true, timeout: 0 })
+          .then(
+            () => undefined,
+            (error: Error) => error
+          );
+
+        expect(controller.signal.aborted).toBe(true);
+        expect(error?.name).not.toBe("AbortError");
+        expect(error?.message).toMatch(/strict mode violation/);
+      } finally {
+        delete (document as Partial<Document>).querySelectorAll;
+      }
     });
 
     it("waits past one second when query timeout is omitted", async () => {
@@ -2427,13 +2712,13 @@ describe("Single-document adapter contract", () => {
       expect(button.scrollIntoView).not.toHaveBeenCalled();
     });
 
-    it("rejects action options whose semantics are not implemented", async () => {
+    it("rejects invalid or unsupported action options", async () => {
       document.body.innerHTML = `<input id=input />`;
       const page = createPage();
 
       await expect(
-        page.locator("#input").check({ signal: new AbortController().signal })
-      ).rejects.toThrow(/unsupported Playwright option/);
+        page.locator("#input").check({ signal: true } as any)
+      ).rejects.toThrow(/signal must be an AbortSignal/);
       await expect(
         page
           .locator("#input")

@@ -25,7 +25,9 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const ADAPTER_DIST_PATH = resolve(__dirname, "../../dist/index.mjs");
 const LOCATOR_CHAIN_PAYLOAD = "__pwLiteLocatorChain";
 const ELEMENT_HANDLE_REF_PAYLOAD = "__pwLiteElementHandleRef";
+const ABORT_SIGNAL_PAYLOAD = "__pwLiteAbortSignal";
 const DEFAULT_TEST_ID_ATTRIBUTE = "data-testid";
+let nextAbortSignalId = 0;
 type ChainStep = [string, unknown[]];
 type AdapterPageState = {
   url: string;
@@ -224,6 +226,85 @@ function encodeBridgeValueForPage(value: unknown, realPage: Page): unknown {
   return encodeBridgeValue(value, new WeakMap<object, unknown>(), realPage);
 }
 
+function serializableAbortReason(reason: unknown): unknown {
+  if (reason instanceof Error)
+    return {
+      __pwLiteAbortError: true,
+      name: reason.name,
+      message: reason.message,
+    };
+  if (
+    reason === undefined ||
+    reason === null ||
+    typeof reason === "string" ||
+    typeof reason === "number" ||
+    typeof reason === "boolean"
+  )
+    return reason;
+  return String(reason);
+}
+
+async function withAbortSignalBridge<Result>(
+  realPage: Page,
+  args: unknown[],
+  invoke: (encodedArgs: unknown[]) => Promise<Result>
+): Promise<Result> {
+  const options = args.at(-1);
+  const signal =
+    options && isPlainObject(options) && options.signal instanceof AbortSignal
+      ? options.signal
+      : undefined;
+  if (!signal)
+    return invoke(encodeBridgeValueForPage(args, realPage) as unknown[]);
+
+  const id = `signal-${++nextAbortSignalId}`;
+  const encodedArgs = args.slice();
+  encodedArgs[encodedArgs.length - 1] = {
+    ...options,
+    signal: {
+      [ABORT_SIGNAL_PAYLOAD]: id,
+      aborted: signal.aborted,
+      reason: serializableAbortReason(signal.reason),
+    },
+  };
+
+  let forwarding: Promise<unknown> | undefined;
+  const forwardAbort = () => {
+    forwarding = realPage
+      .evaluate(
+        ({ signalId, reason }) =>
+          (window as any).__pwLiteAbortSignal(signalId, reason),
+        { signalId: id, reason: serializableAbortReason(signal.reason) }
+      )
+      .catch(() => undefined);
+  };
+  signal.addEventListener("abort", forwardAbort, { once: true });
+  try {
+    return await invoke(
+      encodeBridgeValueForPage(encodedArgs, realPage) as unknown[]
+    );
+  } catch (error) {
+    // Restore identity only for an adapter AbortError that already carried
+    // this reason in the browser; never fabricate a cause for other failures.
+    if (error instanceof Error && abortErrorsCarryingTheirReason.has(error))
+      Object.defineProperty(error, "cause", {
+        configurable: true,
+        value: signal.reason,
+      });
+    throw error;
+  } finally {
+    signal.removeEventListener("abort", forwardAbort);
+    await forwarding;
+    void realPage
+      .evaluate((signalId) => {
+        const host = window as any;
+        host.__pwLiteAbortSignals?.delete(signalId);
+        host.__pwLitePendingAborts?.delete(signalId);
+      }, id)
+      .catch(() => undefined);
+  }
+}
+
 function callbackSource(callback: unknown, operation: string): string {
   if (typeof callback !== "function")
     throw new TypeError(
@@ -234,7 +315,20 @@ function callbackSource(callback: unknown, operation: string): string {
 
 type BridgeEnvelope<Result> =
   | { kind: "value"; value: Result }
-  | { kind: "adapter-timeout"; message: string };
+  | { kind: "adapter-timeout"; message: string }
+  | {
+      kind: "adapter-error";
+      name: string;
+      message: string;
+      causeMatchedAbortReason?: boolean;
+    };
+
+/**
+ * Adapter errors whose browser-side `cause` was the abort reason the adapter
+ * was given. Only those may have the reason's object identity restored on the
+ * Node side, because identity cannot survive the evaluation boundary.
+ */
+const abortErrorsCarryingTheirReason = new WeakSet<Error>();
 
 const testIdAttributeSynchronizers = new WeakMap<Page, () => Promise<void>>();
 
@@ -309,6 +403,13 @@ function unwrapBridgeEnvelope<Result>(
     typeof envelope.message === "string"
   )
     throw new playwrightErrors.TimeoutError(envelope.message);
+  if (envelope.kind === "adapter-error") {
+    const error = new Error(envelope.message);
+    error.name = envelope.name;
+    if (envelope.causeMatchedAbortReason)
+      abortErrorsCarryingTheirReason.add(error);
+    throw error;
+  }
   return envelope.value;
 }
 
@@ -515,28 +616,31 @@ function createPageProxy(realPage: Page, state: AdapterPageState): Page {
       }
 
       if (prop === "$" || prop === "waitForSelector") {
-        return async (selector: string, options?: unknown) => {
-          const id = await evaluateAdapter<string | null>(
+        return async (selector: string, options?: unknown) =>
+          withAbortSignalBridge(
             realPage,
-            ({ method, selector: s, options: o }) => {
-              const host = window as any;
-              return host.__pwLiteInvokeAdapter(async () =>
-                host.__pwLiteStoreElementHandle(
-                  await host.__pwLiteAdapterPage[method](
-                    s,
-                    host.__pwLiteDecodeBridgeValue(o)
-                  )
-                )
+            [selector, options],
+            async ([s, o]) => {
+              const id = await evaluateAdapter<string | null>(
+                realPage,
+                ({ method, selector: encodedSelector, options: encoded }) => {
+                  const host = window as any;
+                  return host.__pwLiteInvokeAdapter(
+                    async () =>
+                      host.__pwLiteStoreElementHandle(
+                        await host.__pwLiteAdapterPage[method](
+                          encodedSelector,
+                          host.__pwLiteDecodeBridgeValue(encoded)
+                        )
+                      ),
+                    encoded
+                  );
+                },
+                { method: prop, selector: s, options: o }
               );
-            },
-            {
-              method: prop,
-              selector,
-              options: encodeBridgeValueForPage(options, realPage),
+              return id ? createElementHandleProxy(realPage, state, id) : null;
             }
           );
-          return id ? createElementHandleProxy(realPage, state, id) : null;
-        };
       }
 
       if (prop === "$$") {
@@ -656,33 +760,31 @@ function createPageProxy(realPage: Page, state: AdapterPageState): Page {
       // Both method calls and property accesses go through the adapter
       // so that unsupported members (keyboard, mouse, touchscreen, etc.)
       // are never leaked from the real Playwright driver.
-      return async (...args: unknown[]) => {
-        const result = await evaluateAdapter<{ value: unknown; url: string }>(
-          realPage,
-          ({ member, args: a }) => {
-            const host = window as any;
-            return host.__pwLiteInvokeAdapter(async () => {
-              const p = host.__pwLiteAdapterPage;
-              const v = p[member];
-              const args = host.__pwLiteDecodeBridgeValue(a);
-              let value: unknown;
-              if (typeof v === "function") value = await v.call(p, ...args);
-              else if (a.length === 0 && v !== undefined) value = v;
-              else
-                throw new TypeError(
-                  `__pwLiteAdapterPage.${member} is not a function`
-                );
-              return { value, url: p.url() };
-            });
-          },
-          {
-            member: prop,
-            args: encodeBridgeValueForPage(args, realPage) as any[],
-          }
-        );
-        state.url = result.url;
-        return result.value;
-      };
+      return async (...args: unknown[]) =>
+        withAbortSignalBridge(realPage, args, async (encodedArgs) => {
+          const result = await evaluateAdapter<{ value: unknown; url: string }>(
+            realPage,
+            ({ member, args: a }) => {
+              const host = window as any;
+              return host.__pwLiteInvokeAdapter(async () => {
+                const p = host.__pwLiteAdapterPage;
+                const v = p[member];
+                const args = host.__pwLiteDecodeBridgeValue(a);
+                let value: unknown;
+                if (typeof v === "function") value = await v.call(p, ...args);
+                else if (a.length === 0 && v !== undefined) value = v;
+                else
+                  throw new TypeError(
+                    `__pwLiteAdapterPage.${member} is not a function`
+                  );
+                return { value, url: p.url() };
+              }, a);
+            },
+            { member: prop, args: encodedArgs as any[] }
+          );
+          state.url = result.url;
+          return result.value;
+        });
     },
   }) as Page;
 }
@@ -1166,20 +1268,22 @@ function createLocatorProxy(
 
       // Everything else: terminal evaluation in browser.
       return async (...args: unknown[]) =>
-        evaluateAdapter(
-          realPage,
-          ({ chain: c, method, args: a }) => {
-            const host = window as any;
-            return host.__pwLiteInvokeAdapter(() => {
-              const current: any = host.__pwLiteReplayAdapterChain(c);
-              return current[method](...host.__pwLiteDecodeBridgeValue(a));
-            });
-          },
-          {
-            chain: encodeBridgeValueForPage(chain, realPage),
-            method: prop as string,
-            args: encodeBridgeValueForPage(args, realPage) as any[],
-          }
+        withAbortSignalBridge(realPage, args, (encodedArgs) =>
+          evaluateAdapter(
+            realPage,
+            ({ chain: c, method, args: a }) => {
+              const host = window as any;
+              return host.__pwLiteInvokeAdapter(() => {
+                const current: any = host.__pwLiteReplayAdapterChain(c);
+                return current[method](...host.__pwLiteDecodeBridgeValue(a));
+              }, a);
+            },
+            {
+              chain: encodeBridgeValueForPage(chain, realPage),
+              method: prop as string,
+              args: encodedArgs,
+            }
+          )
         );
     },
   };
@@ -1205,7 +1309,35 @@ function serializableQueryOptions(options: unknown) {
 function initializeAdapterBridge() {
   const host = window as any;
   host.__pwLiteEvidence = { entered: [], failures: [] };
-  host.__pwLiteInvokeAdapter = async function invoke(operation: () => any) {
+  host.__pwLiteAbortSignals = new Map<string, AbortController>();
+  host.__pwLitePendingAborts = new Map<string, unknown>();
+  const abortReason = (value: any) => {
+    if (value?.__pwLiteAbortError) {
+      const error = new Error(value.message);
+      error.name = value.name;
+      return error;
+    }
+    return value;
+  };
+  host.__pwLiteAbortSignal = (id: string, reason: unknown) => {
+    const controller = host.__pwLiteAbortSignals.get(id);
+    if (controller && !controller.signal.aborted)
+      controller.abort(abortReason(reason));
+    else if (!controller) host.__pwLitePendingAborts.set(id, reason);
+  };
+  // The encoded options carry the bridged signal id, so an AbortError can be
+  // compared against the very controller the adapter was given.
+  const bridgedSignalId = (encodedArgs: any) => {
+    const options = Array.isArray(encodedArgs)
+      ? encodedArgs[encodedArgs.length - 1]
+      : encodedArgs;
+    const id = options?.signal?.__pwLiteAbortSignal;
+    return typeof id === "string" ? id : undefined;
+  };
+  host.__pwLiteInvokeAdapter = async function invoke(
+    operation: () => any,
+    encodedArgs?: any
+  ) {
     try {
       return { kind: "value", value: await operation() };
     } catch (error) {
@@ -1223,6 +1355,24 @@ function initializeAdapterBridge() {
           kind: "adapter-timeout",
           message: error instanceof Error ? error.message : String(error),
         };
+      if (error instanceof Error && error.name === "AbortError") {
+        // `cause` cannot cross the evaluation boundary by identity. Report
+        // here, in the browser, whether the adapter's own error already
+        // carried the abort reason it was given; only then may the Node side
+        // restore that object's identity.
+        const controller = host.__pwLiteAbortSignals.get(
+          bridgedSignalId(encodedArgs)
+        );
+        return {
+          kind: "adapter-error",
+          name: error.name,
+          message: error.message,
+          causeMatchedAbortReason:
+            !!controller &&
+            controller.signal.aborted &&
+            error.cause === controller.signal.reason,
+        };
+      }
       throw error;
     }
   };
@@ -1231,6 +1381,36 @@ function initializeAdapterBridge() {
     if (Array.isArray(value)) return value.map(decode);
     if (Array.isArray(value.__pwLiteBytes))
       return Uint8Array.from(value.__pwLiteBytes);
+    if (typeof value.__pwLiteAbortSignal === "string") {
+      let controller = host.__pwLiteAbortSignals.get(value.__pwLiteAbortSignal);
+      if (!controller) {
+        controller = new AbortController();
+        host.__pwLiteAbortSignals.set(value.__pwLiteAbortSignal, controller);
+      }
+      const pending = host.__pwLitePendingAborts.get(value.__pwLiteAbortSignal);
+      if (host.__pwLitePendingAborts.has(value.__pwLiteAbortSignal)) {
+        host.__pwLitePendingAborts.delete(value.__pwLiteAbortSignal);
+        if (!controller.signal.aborted) {
+          const reason = abortReason(pending);
+          // `value.aborted` is the Node-side state at the moment the API call
+          // was made, which is what decides in-flight versus already-aborted
+          // upstream: a signal aborted after the call was issued cancels a
+          // call the server has already received. The forwarded abort can win
+          // the race to the browser, so re-time it to that ordering instead of
+          // letting transport scheduling turn an in-flight abort into an
+          // already-aborted one. The adapter still has to observe the abort
+          // and produce the error itself.
+          if (value.aborted) controller.abort(reason);
+          else
+            queueMicrotask(() => {
+              if (!controller.signal.aborted) controller.abort(reason);
+            });
+        }
+      } else if (value.aborted && !controller.signal.aborted) {
+        controller.abort(abortReason(value.reason));
+      }
+      return controller.signal;
+    }
     if (typeof value.__pwLiteElementHandleRef === "string")
       return host.__pwLiteElementHandleForId(value.__pwLiteElementHandleRef);
     if (Array.isArray(value.__pwLiteLocatorChain))
