@@ -6,14 +6,28 @@ Keep copied upstream specs byte-for-byte identical to their pinned source. Chang
 
 ## Upstream fixture setup
 
-The unchanged storage, library highlight and pointer-action corpus specs use
-explicitly enabled native `goto` only to establish their test document/origin.
-These calls are recorded as `Page.goto` in native execution evidence. They can
-never certify navigation compatibility. No failed adapter call is retried via
-the native driver. All storage/highlight/pointer operations under review and assertions use the
-browser adapter. Library highlight tests use the pinned InjectedScript's test
-mode to expose its shadow root; direct runtime tests also verify the production
-closed-root overlay without changing its mode.
+Unchanged corpus specs that only need `goto` to establish their test
+document/origin are listed in `nativeNavigationForSetupSpecs`
+(`tests/upstream/pageTest.ts`) and run that call on the native driver. These
+calls are recorded as `Page.goto` in native execution evidence. They can never
+certify navigation compatibility. No failed adapter call is retried via the
+native driver. Every operation under review and every assertion in those specs
+still uses the browser adapter. Native `goto` ends at the test's first adapter
+call: a listed spec's later `goto` routes through the adapter like any other
+member and fails there, so a mid-test navigation is never faked.
+
+Specs whose subject is navigation itself (`page-goto.spec.ts`) are never listed.
+A goto-as-subject test inside a listed mixed file can still pass
+diagnostically — its setup navigation succeeded natively — but promotion
+refuses it, because `Page.goto` never entered the adapter and the recorded
+evidence shows the call in the native operation log instead.
+
+Library highlight tests use the pinned
+InjectedScript's test mode to expose its shadow root; direct runtime tests also
+verify the production closed-root overlay without changing its mode.
+
+Fixture assets under `tests/assets/` are copied byte-for-byte from the same
+pinned commit as the specs (`corpus.source` in `tests/upstream/corpus.ts`).
 
 ## Harness trust
 
