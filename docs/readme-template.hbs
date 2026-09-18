@@ -1,12 +1,14 @@
 <!-- Generated from docs/readme-template.hbs and compatibility/api.ts. Run pnpm generate:readme. -->
 
-# playwright-lite
+# Ayme Playwright Lite fork
+
+This fork of [playwright-lite](https://github.com/enekesabel/playwright-lite) is consumed by Ayme WebMCP as an exact-commit Git dependency. It is not published to a package registry, and it is not an official Microsoft package.
 
 Use Playwright's `Page` and `Locator` APIs in the browser document you're already in.
 `playwright-lite` runs inside your application, without launching a browser or connecting to a Playwright server.
 
 ```ts
-import { createPage } from "@enekesabel/playwright-lite";
+import { createPage } from "@ayme-dev/playwright-lite";
 
 const page = createPage({
   testIdAttribute: "data-test",
@@ -37,15 +39,24 @@ Do not repeat them in partial API notes or downgrade APIs because of them.
 - Build guided onboarding and automation flows.
 - Run the supported parts of existing Playwright scripts inside your application.
 
+{{!--
+Fork-only sections. Upstream's template has neither; keep them when syncing.
+--}}
+## Fork-only integration
+
+`@ayme-dev/playwright-lite/internal` exports `captureAriaSnapshot`, `isPlaywrightLiteLocator`, and `resolveLocatorElements`, plus the capture result type. This entry preserves WebMCP's existing dual ARIA capture and locator-to-DOM identity contract. It is not part of the personal upstream API or WebMCP's public API. The root exports only `createPage` and `CreatePageOptions`; locator brands and implementation classes remain private.
+
+The compatibility corpus stays pinned to stock Playwright {{playwrightVersion}} in `tests/upstream/corpus.ts`. Injected code is generated separately from `ayme-labs/playwright@b25d782e3fbdf21abdae60e974e49b78ca07e828`, selected in `scripts/generate-injected.mjs`. The fork patch adds dual capture without adding POM availability policy or changing evaluation semantics.
+
 ## Installation
 
-playwright-lite is pre-1.0; APIs may change.
+playwright-lite is pre-1.0; APIs may change. Install the fork as a Git dependency pinned to an exact commit of `ayme-labs/playwright-lite`.
 
-```sh
-npm add @enekesabel/playwright-lite
-```
+Git installation runs `prepare` to build the checked-in generated sources in `build/generated`. Unlike upstream, this fork commits them and hash-checks them during builds, so consumers do not clone Playwright or run its generator. Building from Git uses the contributor toolchain (Node.js 24, pnpm 11.24.0), not the minimum Node version of the built package. WebMCP explicitly allows this dependency's build and bundles the result into its distribution. Its consumers do not install or build the fork.
 
-Requires Node.js 20 or newer.
+The packed browser library requires Node.js 20 or newer.
+
+Maintainers regenerate the sources with `pnpm generate:injected` and verify them with `pnpm generate:check`. Review artifact hash changes before updating the build pin in `build/playwrightInjectedPlugin.ts`. [docs/fork/SYNC.md](docs/fork/SYNC.md) describes how the fork follows upstream.
 
 {{!--
 The ledger owns statuses and exact public JavaScript API differences. Notes name
