@@ -38,6 +38,7 @@ test("README renders API compatibility without repeating runtime boundaries", as
   assert.deepEqual(headings, [
     "Assertions",
     "Use cases",
+    "Fork-only integration",
     "Installation",
     "Runtime boundaries",
     "Compatibility",
