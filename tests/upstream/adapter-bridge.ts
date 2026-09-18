@@ -1,11 +1,11 @@
 /**
- * Bridges the @enekesabel/playwright-lite in-browser adapter with
+ * Bridges the @ayme-dev/playwright-lite in-browser adapter with
  * Playwright Test's Node.js fixture. Loads the compiled dist bundle
  * (which includes the real pinned InjectedScript), injects it into
  * the browser page, and creates proxy Page/Locator objects that route
  * all compatibility calls through the adapter.
  */
-import { readFileSync } from "node:fs";
+import { buildSync } from "esbuild";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -445,17 +445,16 @@ let cachedBundle: string | undefined;
 function buildAdapterBundle(): string {
   if (cachedBundle) return cachedBundle;
 
-  const dist = readFileSync(ADAPTER_DIST_PATH, "utf8");
-
-  // Strip ES module export declaration so the code runs as a script.
-  const js = dist.replace(/^export\s+\{[^}]*\}.*$/gm, "");
-
-  cachedBundle = [
-    "window.__pwLiteAdapter = (function() {",
-    js,
-    "return { createPage: createPage };",
-    "})();",
-  ].join("\n");
+  // Bundle the built package, including shared chunks, without source aliases.
+  cachedBundle = buildSync({
+    entryPoints: [ADAPTER_DIST_PATH],
+    bundle: true,
+    write: false,
+    platform: "browser",
+    format: "iife",
+    globalName: "__pwLiteBundle",
+    footer: { js: "globalThis.__pwLiteAdapter = __pwLiteBundle;" },
+  }).outputFiles[0]!.text;
 
   return cachedBundle;
 }

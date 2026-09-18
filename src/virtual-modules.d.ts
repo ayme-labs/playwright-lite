@@ -38,6 +38,11 @@ declare module "virtual:playwright-lite-injected" {
         mode: "ai" | "default";
       }
     ): string;
+    captureAriaSnapshot(node: Element): {
+      distilledText: string;
+      fullText: string;
+      refsByElement: Map<Element, string>;
+    };
     parseSelector(selector: string): ParsedSelector;
     querySelector(
       selector: ParsedSelector,
