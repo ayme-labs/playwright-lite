@@ -44,6 +44,11 @@ declare module "virtual:playwright-lite-injected" {
         mode: "ai" | "default";
       }
     ): string;
+    captureAriaSnapshot(node: Element): {
+      distilledText: string;
+      fullText: string;
+      refsByElement: Map<Element, string>;
+    };
     parseSelector(selector: string): ParsedSelector;
     querySelector(
       selector: ParsedSelector,
@@ -64,6 +69,11 @@ declare module "virtual:playwright-lite-injected" {
       state: "visible" | "hidden" | "enabled" | "disabled" | "editable"
     ): ElementStateResult;
     previewNode(node: Node): string;
+    /** Pinned selectorGenerator.ts `generateSelector`, which codegen calls. */
+    generateSelector(
+      targetElement: Element,
+      options: { testIdAttributeName: string; root?: Element }
+    ): { selector: string; elements: Element[] };
     addHighlight(selector: ParsedSelector, style?: string): void;
     removeHighlight(selector: ParsedSelector): void;
     hideHighlight(): void;
