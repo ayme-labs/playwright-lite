@@ -1,3 +1,5 @@
+This is the `ayme-labs` fork. `main` mirrors upstream; fork commits live only on `ayme-*` tags. Before syncing with upstream or changing fork code, read `docs/fork/SYNC.md`.
+
 # Playwright compatibility
 
 When implementing Page or Locator behavior, inspect the pinned Playwright implementation and its corresponding tests first. Reuse the pinned browser primitives where available. Explain any remaining behavioral differences in the change report.
