@@ -17,3 +17,5 @@ Bundled under the ISC license. See LICENSES/YAML-LICENSE.txt.
 mime
 Copyright (c) 2023 Robert Kieffer.
 The file-name-to-MIME-type table and lookup of mime@4.1.0, as bundled by the pinned Playwright release, are included under the MIT license. See LICENSES/MIME-LICENSE.txt.
+
+This fork modifies the injected runtime source to ayme-labs/playwright at b25d782e3fbdf21abdae60e974e49b78ca07e828 for dual ARIA capture. Stock compatibility sources and their existing notices are retained.
