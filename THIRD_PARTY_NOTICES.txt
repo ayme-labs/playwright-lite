@@ -21,3 +21,5 @@ The file-name-to-MIME-type table and lookup of mime@4.1.0, as bundled by the pin
 SnapDOM
 Copyright (c) 2025 ZumerLab.
 @zumer/snapdom@3.2.0, which renders the document for screenshots, is bundled as a chunk the first capture loads, under the MIT license. See LICENSES/SNAPDOM-LICENSE.txt.
+
+This fork modifies the injected runtime source to ayme-labs/playwright at b25d782e3fbdf21abdae60e974e49b78ca07e828 for dual ARIA capture. Stock compatibility sources and their existing notices are retained.

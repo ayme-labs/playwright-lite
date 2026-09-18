@@ -2,10 +2,15 @@ import type { Locator, Page } from "@playwright/test";
 import {
   createPage,
   expect,
-  type CreatePageOptions,
   type Expect,
-} from "@enekesabel/playwright-lite";
-import * as publicExports from "@enekesabel/playwright-lite";
+  type CreatePageOptions,
+} from "@ayme-dev/playwright-lite";
+import * as publicExports from "@ayme-dev/playwright-lite";
+import {
+  captureAriaSnapshot,
+  isPlaywrightLiteLocator,
+  resolveLocatorElements,
+} from "@ayme-dev/playwright-lite/internal";
 
 class ProfilePage {
   readonly name: Locator;
@@ -81,6 +86,9 @@ export async function runConsumer() {
   // The first capture also loads the renderer chunk; a generous timeout
   // keeps this a packaging check rather than a timing one.
   const screenshot = await page.screenshot({ type: "jpeg", timeout: 30_000 });
+  const internalSnapshot = captureAriaSnapshot(document.body);
+  const saveRef = internalSnapshot.refsByElement.get(button);
+  const resolvedSave = resolveLocatorElements(profile.save);
   return {
     exports: Object.keys(publicExports).sort(),
     value: await profile.name.inputValue(),
@@ -93,5 +101,13 @@ export async function runConsumer() {
     expectObserved: observed,
     consoleLocation,
     screenshotSignature: Array.from(screenshot.subarray(0, 3)),
+    internalIsLocator: isPlaywrightLiteLocator(profile.save),
+    internalResolvedSave:
+      resolvedSave.length === 1 && resolvedSave[0] === button,
+    internalSnapshot: {
+      fullText: internalSnapshot.fullText,
+      distilledText: internalSnapshot.distilledText,
+      saveRef: saveRef ?? null,
+    },
   };
 }

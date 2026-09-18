@@ -6,7 +6,6 @@
     "module": "ESNext",
     "moduleResolution": "Bundler",
     "target": "ES2024",
-    "paths": { "@enekesabel/playwright-lite": ["./src/index.ts"] },
     "types": ["node"]
   },
   "include": ["src/**/*.ts", "tests/contract/**/*.ts"]

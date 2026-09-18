@@ -1,5 +1,5 @@
 {
-  "name": "@enekesabel/playwright-lite",
+  "name": "@ayme-dev/playwright-lite",
   "version": "0.9.1",
   "description": "Playwright-compatible Page and Locator operations in the current browser document",
   "keywords": [
@@ -27,10 +27,10 @@
   "packageManager": "pnpm@11.24.0",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/enekesabel/playwright-lite.git"
+    "url": "git+https://github.com/ayme-labs/playwright-lite.git"
   },
   "bugs": {
-    "url": "https://github.com/enekesabel/playwright-lite/issues"
+    "url": "https://github.com/ayme-labs/playwright-lite/issues"
   },
   "publishConfig": {
     "registry": "https://registry.npmjs.org",
@@ -48,6 +48,11 @@
       "types": "./dist/index.d.mts",
       "import": "./dist/index.mjs",
       "default": "./dist/index.mjs"
+    },
+    "./internal": {
+      "types": "./dist/internal.d.mts",
+      "import": "./dist/internal.mjs",
+      "default": "./dist/internal.mjs"
     }
   },
   "scripts": {
@@ -98,5 +103,6 @@
     "typescript-eslint": "^8.68.0",
     "vitest": "^4.1.11",
     "yaml": "2.9.0"
-  }
+  },
+  "private": true
 }
