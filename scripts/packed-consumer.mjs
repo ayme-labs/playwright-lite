@@ -4,6 +4,7 @@ import {
   copyFileSync,
   existsSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
   rmSync,
   writeFileSync,
@@ -18,6 +19,16 @@ const temporary = mkdtempSync(resolve(tmpdir(), "playwright-lite-consumer-"));
 const env = { ...process.env, PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: "1" };
 const playwrightVersion = process.env.PLAYWRIGHT_VERSION ?? "1.62.1";
 const runtimeCheck = playwrightVersion === "1.62.1";
+
+function* installedFiles(directory, prefix = "") {
+  for (const entry of readdirSync(directory, { withFileTypes: true })) {
+    const path = `${prefix}${entry.name}`;
+    if (entry.isDirectory())
+      yield* installedFiles(resolve(directory, entry.name), `${path}/`);
+    else yield path;
+  }
+}
+
 let browser;
 try {
   assert.ok(
@@ -49,7 +60,7 @@ try {
         private: true,
         type: "module",
         dependencies: {
-          "@enekesabel/playwright-lite": `file:${tarball}`,
+          "@ayme-dev/playwright-lite": `file:${tarball}`,
           "@playwright/test": playwrightVersion,
           "@types/node": "20.19.43",
           esbuild: "0.28.1",
@@ -76,19 +87,15 @@ try {
   const consumerRequire = createRequire(resolve(temporary, "package.json"));
   const installedRoot = resolve(
     temporary,
-    "node_modules/@enekesabel/playwright-lite"
+    "node_modules/@ayme-dev/playwright-lite"
   );
-  const [packed] = JSON.parse(
-    execFileSync("npm", ["pack", "--dry-run", "--ignore-scripts", "--json"], {
-      cwd: installedRoot,
-      encoding: "utf8",
-      env,
-    })
-  );
-  const files = new Set(packed.files.map((file) => file.path));
+  // Inspect the installed artifact directly; packing it again can run prepare.
+  const files = new Set(installedFiles(installedRoot));
   for (const file of [
     "dist/index.mjs",
     "dist/index.d.mts",
+    "dist/internal.mjs",
+    "dist/internal.d.mts",
     "LICENSE",
     "README.md",
     "THIRD_PARTY_NOTICES.txt",
@@ -111,14 +118,14 @@ try {
   );
   assert.equal(installedPackage.license, "MIT");
   assert.equal(installedPackage.engines.node, ">=20");
-  assert.deepEqual(Object.keys(installedPackage.exports), ["."]);
+  assert.deepEqual(Object.keys(installedPackage.exports), [".", "./internal"]);
   assert.equal(installedPackage.dependencies?.yaml, undefined);
   assert.equal(installedPackage.devDependencies.yaml, "2.9.0");
   assert.throws(() => consumerRequire.resolve("yaml"), {
     code: "MODULE_NOT_FOUND",
   });
   assert.throws(
-    () => consumerRequire.resolve("@enekesabel/playwright-lite/dom"),
+    () => consumerRequire.resolve("@ayme-dev/playwright-lite/dom"),
     { code: "ERR_PACKAGE_PATH_NOT_EXPORTED" }
   );
   const declarations = readFileSync(
@@ -138,7 +145,7 @@ try {
   } else {
     writeFileSync(
       resolve(temporary, "consumer.ts"),
-      'import type { Locator, Page } from "@playwright/test";\nimport { createPage, type CreatePageOptions } from "@enekesabel/playwright-lite";\n\nconst options: CreatePageOptions = { testIdAttribute: "data-test" };\nconst page: Page = createPage(options);\nconst locator: Locator = page.getByTestId("name");\nvoid locator;\n'
+      'import type { Locator, Page } from "@playwright/test";\nimport { createPage, type CreatePageOptions } from "@ayme-dev/playwright-lite";\n\nconst options: CreatePageOptions = { testIdAttribute: "data-test" };\nconst page: Page = createPage(options);\nconst locator: Locator = page.getByTestId("name");\nvoid locator;\n'
     );
   }
   writeFileSync(
@@ -187,9 +194,17 @@ try {
     });
     assert.ok(
       Object.keys(result.metafile.inputs).some((path) =>
-        path.includes("node_modules/@enekesabel/playwright-lite/dist/index.mjs")
+        path.includes("node_modules/@ayme-dev/playwright-lite/dist/index.mjs")
       ),
       "Consumer must import the installed artifact."
+    );
+    assert.ok(
+      Object.keys(result.metafile.inputs).some((path) =>
+        path.includes(
+          "node_modules/@ayme-dev/playwright-lite/dist/internal.mjs"
+        )
+      ),
+      "Consumer must import the installed internal artifact."
     );
     for (const output of Object.values(result.metafile.outputs))
       assert.equal(
@@ -212,10 +227,20 @@ try {
     assert.equal(observed.defaultCount, 1);
     assert.match(observed.snapshot, /button "Save"/);
     assert.match(observed.locatorSnapshot, /button "Save"/);
+    assert.equal(observed.internalIsLocator, true);
+    assert.equal(observed.internalResolvedSave, true);
+    assert.match(observed.internalSnapshot.fullText, /button "Save"/);
+    assert.match(observed.internalSnapshot.distilledText, /button "Save"/);
+    assert.ok(observed.internalSnapshot.saveRef);
+    assert.ok(
+      observed.internalSnapshot.fullText.includes(
+        `[ref=${observed.internalSnapshot.saveRef}]`
+      )
+    );
   }
 
   console.log(
-    `PASS packed consumer on Node ${process.version} with Playwright ${playwrightVersion}: strict isolated install and declarations${runtimeCheck ? ", browser bundle and runtime" : ""}`
+    `PASS packed consumer on Node ${process.version} with Playwright ${playwrightVersion}: strict isolated install, root and internal exports, and declarations${runtimeCheck ? ", browser bundle and runtime" : ""}`
   );
 } finally {
   await browser?.close();

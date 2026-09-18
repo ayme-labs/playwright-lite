@@ -9,3 +9,5 @@ See LICENSES/PLAYWRIGHT-LICENSE.txt and the accompanying upstream notices in LIC
 YAML
 Copyright 2018, 2019, 2020 Eemeli Aro and contributors.
 Bundled under the ISC license. See LICENSES/YAML-LICENSE.txt.
+
+This fork modifies the injected runtime source to ayme-labs/playwright at b25d782e3fbdf21abdae60e974e49b78ca07e828 for dual ARIA capture. Stock compatibility sources and their existing notices are retained.
