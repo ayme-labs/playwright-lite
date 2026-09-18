@@ -11,4 +11,3 @@ tests/contract/__screenshots__/
 .env.*
 !.env.example
 .devbox/
-build/generated/
