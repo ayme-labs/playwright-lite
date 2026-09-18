@@ -33,7 +33,7 @@
     }
   },
   "scripts": {
-    "build": "pnpm generate:injected && tsdown",
+    "build": "tsdown",
     "lint": "eslint src tests/contract --max-warnings 0",
     "test": "vitest run && node --test scripts/upstream-baseline.test.mjs scripts/upstream-specs.test.mjs scripts/generate-readme.test.mjs scripts/release.test.mjs scripts/release-bootstrap.test.mjs",
     "test:guards": "pnpm exec playwright test tests/upstream/_adapter-guard.spec.ts tests/upstream/_page-test-fixture.spec.ts tests/upstream/_synchronization-guard.spec.ts tests/upstream/_browser-compat-guard.spec.ts",
@@ -44,6 +44,7 @@
     "upstream:sync": "node scripts/upstream-specs.mjs sync",
     "upstream:check": "node scripts/upstream-specs.mjs check",
     "generate:injected": "node scripts/generate-injected.mjs",
+    "generate:check": "node scripts/generate-injected.mjs --check",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "test:package": "node scripts/packed-consumer.mjs",
@@ -51,7 +52,8 @@
     "test:evaluation": "node scripts/evaluation-parity.mjs",
     "generate:readme": "node scripts/generate-readme.mjs",
     "check:readme": "node scripts/generate-readme.mjs --check",
-    "commitlint": "commitlint"
+    "commitlint": "commitlint",
+    "prepare": "pnpm build"
   },
   "peerDependencies": {
     "@playwright/test": ">=1.29 <1.63"

@@ -63,6 +63,8 @@ jobs:
       # vitest runs Chromium in-process for src/**/*.test.ts; headless shell is enough since
       # everything here runs headless.
       - run: pnpm exec playwright install --only-shell chromium
+      # The fork commits build/generated; prove it reproduces from the pinned sources.
+      - run: pnpm generate:check
       - run: pnpm check
       - name: Pack the verified build
         run: |
