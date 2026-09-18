@@ -1,11 +1,11 @@
 /**
- * Bridges the @enekesabel/playwright-lite in-browser adapter with
+ * Bridges the @ayme-dev/playwright-lite in-browser adapter with
  * Playwright Test's Node.js fixture. Loads the compiled dist bundle
  * (which includes the real pinned InjectedScript), injects it into
  * the browser page, and creates proxy Page/Locator objects that route
  * all compatibility calls through the adapter.
  */
-import { readFileSync } from "node:fs";
+import { buildSync } from "esbuild";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -1342,51 +1342,19 @@ let cachedBundle: string | undefined;
 function buildAdapterBundle(): string {
   if (cachedBundle) return cachedBundle;
 
-  // The entry imports its lazily loaded chunks, such as the screenshot
-  // renderer, by a path relative to its own module, which a script has none
-  // of. Each chunk is carried in the bundle instead and evaluated on its
-  // first import, as the module would be.
-  const chunks: string[] = [];
-  const entry = asScript(readFileSync(ADAPTER_DIST_PATH, "utf8")).replace(
-    /\bimport\("\.\/([\w.-]+\.mjs)"\)/g,
-    (_, file: string) => {
-      if (!chunks.includes(file)) chunks.push(file);
-      return `__pwLiteImport(${JSON.stringify(file)})`;
-    }
-  );
-  const chunkModules = chunks.map((file) => {
-    const chunk = asScript(
-      readFileSync(resolve(dirname(ADAPTER_DIST_PATH), file), "utf8")
-    );
-    return `${JSON.stringify(file)}: () => {\n${chunk}\n},`;
-  });
-
-  cachedBundle = [
-    "window.__pwLiteAdapter = (function() {",
-    `const __pwLiteChunks = {\n${chunkModules.join("\n")}\n};`,
-    "const __pwLiteModules = {};",
-    "const __pwLiteImport = (file) => Promise.resolve().then(() => __pwLiteModules[file] ??= __pwLiteChunks[file]());",
-    entry,
-    "})();",
-  ].join("\n");
+  // Bundle the built package, including shared chunks, without source aliases.
+  cachedBundle = buildSync({
+    entryPoints: [ADAPTER_DIST_PATH],
+    bundle: true,
+    write: false,
+    platform: "browser",
+    format: "iife",
+    globalName: "__pwLiteBundle",
+    // Keep the mutable export object the harness uses to install guard stubs.
+    footer: { js: "globalThis.__pwLiteAdapter = { ...__pwLiteBundle };" },
+  }).outputFiles[0]!.text;
 
   return cachedBundle;
-}
-
-/**
- * Strips an ES module's export declaration so its code runs as a script, and
- * returns the same exports, under their exported names, as its result.
- */
-function asScript(module: string): string {
-  const exported: string[] = [];
-  const js = module.replace(/^export\s+\{([^}]*)\}.*$/gm, (_, list: string) => {
-    for (const specifier of list.split(",")) {
-      const [local, name = local] = specifier.trim().split(/\s+as\s+/);
-      if (local) exported.push(`${JSON.stringify(name)}: ${local}`);
-    }
-    return "";
-  });
-  return `${js}\nreturn { ${exported.join(", ")} };`;
 }
 
 // ── Page proxy ──────────────────────────────────────────────────────
