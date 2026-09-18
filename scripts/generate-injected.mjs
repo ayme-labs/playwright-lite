@@ -16,6 +16,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { corpus } from "../tests/upstream/corpus.ts";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
+const check = process.argv.includes("--check");
 // The compatibility corpus stays pinned to stock Playwright.
 const injectedSource = {
   repository: "ayme-labs/playwright",
@@ -30,8 +31,16 @@ const run = (command, args, options = {}) =>
 
 function output(path, bytes) {
   const target = resolve(root, path);
-  mkdirSync(dirname(target), { recursive: true });
-  writeFileSync(target, bytes);
+  if (check) {
+    assert.ok(existsSync(target), `Missing generated file: ${path}`);
+    assert.ok(
+      readFileSync(target).equals(Buffer.from(bytes)),
+      `Generated file differs: ${path}`
+    );
+  } else {
+    mkdirSync(dirname(target), { recursive: true });
+    writeFileSync(target, bytes);
+  }
 }
 
 try {
