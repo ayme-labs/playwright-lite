@@ -15,7 +15,7 @@ export default defineConfig({
   // `virtual:playwright-lite-globals` and the declarations drop its imports,
   // which only bind values.
   dts: { eager: true },
-  entry: ["src/index.ts"],
+  entry: ["src/index.ts", "src/internal.ts"],
   deps: {
     alwaysBundle: [
       /[/\\]@jest[/\\]expect-utils[/\\]/,
