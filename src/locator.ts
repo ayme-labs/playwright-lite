@@ -112,6 +112,7 @@ const LOCATOR_LIFETIME_CALLS: Record<
   count: true,
   dblclick: true,
   dispatchEvent: true,
+  dragTo: true,
   drop: true,
   elementHandle: true,
   elementHandles: true,
@@ -171,6 +172,7 @@ export class LocatorImpl {
   constructor(
     private readonly ownerPage: PageImpl,
     private selector: string,
+    /** How errors name this locator. */
     private readonly label: string,
     options?: LocatorOptions
   ) {
@@ -664,6 +666,21 @@ export class LocatorImpl {
         "clear",
         force
       )
+    );
+  }
+
+  /** Pinned client/locator.ts: the page's drag from this locator to `target`'s selector. */
+  async dragTo(
+    target: LocatorImpl,
+    options?: Parameters<Locator["dragTo"]>[1]
+  ) {
+    const brand = requireBrand(target, "locator.dragTo: target");
+    await this.ownerPage.dragAndDropSelectors(
+      this.selector,
+      brand.getSelector(),
+      { source: this.label, target: target.label },
+      { ...options, strict: true },
+      "dragTo"
     );
   }
 
