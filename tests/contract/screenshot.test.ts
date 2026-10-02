@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { createPage } from "../../src/index";
 import { pendingFont, webFont } from "./fonts";
@@ -1260,6 +1260,134 @@ describe("Locator.screenshot", () => {
     expect(image.pixel(130, 10)).toEqual(pink);
     expect(image.pixel(10, 10)).toEqual(blue);
     expect(document.querySelectorAll("style")).toHaveLength(styles);
+  });
+
+  describe("with animations", () => {
+    let sheet: HTMLStyleElement;
+    beforeEach(() => {
+      sheet = document.createElement("style");
+      sheet.textContent = `
+        #rule { background: rgb(255, 0, 0) }
+        .rule { background: rgb(255, 0, 0) }
+        #keyframes { background: rgb(255, 0, 0); animation: to-blue 60s forwards }
+        @keyframes to-blue { to { background: rgb(0, 0, 255) } }
+        .slow { background-color: rgb(255, 0, 0); transition: background-color 60s steps(1, end) }
+        .slow.blue { background-color: rgb(0, 0, 255) }`;
+      document.head.append(sheet);
+    });
+    afterEach(() => sheet.remove());
+
+    const box = "width: 20px; height: 20px";
+
+    it("renders the value a finished fill-forwards animation holds", async () => {
+      document.body.innerHTML = `
+        <div id="rule" style="${box}"></div>
+        <div class="rule" style="${box}"></div>
+        <div id="inline" style="${box}; background: rgb(255, 0, 0)"></div>
+        <div id="longhand" style="${box}; background-color: rgb(255, 0, 0)"></div>
+        <div id="keyframes" style="${box}"></div>
+        <div id="host"></div>`;
+      const host = document.querySelector("#host")!;
+      host.attachShadow({ mode: "open" }).innerHTML =
+        `<style>#shadow-rule { background: rgb(255, 0, 0) }</style>
+        <div id="shadow-rule" style="${box}"></div>
+        <div id="shadowed" style="${box}; background: rgb(255, 0, 0)"></div>`;
+      const targets = [
+        ...document.querySelectorAll("#rule, .rule, #inline"),
+        ...host.shadowRoot!.querySelectorAll("#shadow-rule, #shadowed"),
+      ];
+      for (const target of targets)
+        target.animate(
+          [{ background: "rgb(255, 0, 0)" }, { background: "rgb(0, 0, 255)" }],
+          { duration: 60_000, fill: "forwards" }
+        );
+      document
+        .querySelector("#longhand")!
+        .animate([{ background: "rgb(0, 0, 255)" }], {
+          duration: 60_000,
+          fill: "forwards",
+        });
+      for (const animation of document.getAnimations()) animation.finish();
+      for (const animation of host.shadowRoot!.getAnimations())
+        animation.finish();
+      const page = createPage();
+
+      for (const selector of [
+        "#rule",
+        ".rule",
+        "#inline",
+        "#longhand",
+        "#keyframes",
+        "#shadow-rule",
+        "#shadowed",
+      ]) {
+        const image = await decode(await page.locator(selector).screenshot());
+        expect([selector, image.pixel(10, 10)]).toEqual([selector, blue]);
+      }
+    });
+
+    it("renders an important author value over a finished animation", async () => {
+      // SnapDOM re-resolves every inline declaration once a stylesheet has an
+      // important one, so this case keeps out of the inline cases above.
+      sheet.textContent +=
+        "#important { background: rgb(255, 0, 0) !important }";
+      document.body.innerHTML = `<div id="important" style="${box}"></div>`;
+      document
+        .querySelector("#important")!
+        .animate([{ background: "rgb(0, 0, 255)" }], {
+          duration: 60_000,
+          fill: "forwards",
+        })
+        .finish();
+
+      // The important declaration wins over the animation live too.
+      const image = await decode(
+        await createPage().locator("#important").screenshot()
+      );
+      expect(image.pixel(10, 10)).toEqual(red);
+    });
+
+    it("renders a transition in flight at its current value", async () => {
+      document.body.innerHTML = `
+        <div id="class-change" class="slow" style="${box}"></div>
+        <div id="inline-write" class="slow" style="${box}"></div>`;
+      const classChange = document.querySelector<HTMLElement>("#class-change")!;
+      const inlineWrite = document.querySelector<HTMLElement>("#inline-write")!;
+      const colors = () =>
+        [classChange, inlineWrite].map(
+          (element) => getComputedStyle(element).backgroundColor
+        );
+      // Reading the style first gives each transition its red start.
+      expect(colors()).toEqual(["rgb(255, 0, 0)", "rgb(255, 0, 0)"]);
+      classChange.classList.add("blue");
+      inlineWrite.style.backgroundColor = "rgb(0, 0, 255)";
+      // `steps(1, end)` holds the start value until the transition ends.
+      expect(colors()).toEqual(["rgb(255, 0, 0)", "rgb(255, 0, 0)"]);
+      const page = createPage();
+
+      for (const selector of ["#class-change", "#inline-write"]) {
+        const image = await decode(await page.locator(selector).screenshot());
+        expect([selector, image.pixel(10, 10)]).toEqual([selector, red]);
+      }
+    });
+  });
+
+  it("draws list markers in a counter style the page defines", async () => {
+    const sheet = document.createElement("style");
+    sheet.textContent = `
+      @counter-style blocks { system: cyclic; symbols: "\\2588\\2588\\2588\\2588"; suffix: "" }
+      ol { list-style: blocks inside; margin: 0; padding: 0; font: 20px monospace; color: rgb(0, 0, 255) }`;
+    document.head.append(sheet);
+    try {
+      document.body.style.margin = "0";
+      document.body.innerHTML = `<ol><li></li></ol>`;
+      const image = await decode(await createPage().locator("ol").screenshot());
+
+      // The fourth block, where a decimal "1." marker would leave white.
+      expect(image.pixel(42, 12)).toEqual(blue);
+    } finally {
+      sheet.remove();
+    }
   });
 
   it("rejects the Page-only options", async () => {
