@@ -242,6 +242,56 @@ export const objectSections: readonly ObjectSection[] = [
     ],
   },
   {
+    name: "Screenshots",
+    covers:
+      "`page.screenshot()` captures the current viewport by rendering the document's DOM into an image inside the page, with the codecs, `quality`, `scale` and `omitBackground` Playwright documents.",
+    members: [
+      {
+        member: "Returned image",
+        lite: "A `Uint8Array`.",
+        playwright: "A Node.js `Buffer`.",
+      },
+      {
+        member: "`path`",
+        lite: "Rejected; write the returned bytes yourself.",
+        playwright: "Also writes the image to the file.",
+      },
+      {
+        member: "`fullPage`, `clip`, `mask`, `style`",
+        lite: "Rejected, except `fullPage: false`, an empty `mask` and an empty `style`.",
+        playwright:
+          "Capture the full page or a region, cover elements, and apply a stylesheet.",
+      },
+      {
+        member: "`animations`",
+        lite: '`"disabled"` is rejected.',
+        playwright: "Stops CSS animations, transitions and Web Animations.",
+      },
+      {
+        member: "`caret`",
+        lite: "Accepts both values; the text caret is never painted.",
+        playwright: '`"initial"` keeps the caret visible.',
+      },
+    ],
+    differences: [
+      "Buttons, text inputs, `<select>` and `<progress>` are drawn with plain borders and colors instead of the browser's native control styling; checkboxes, radio buttons and range inputs match.",
+      "Text sits at the same positions, but its edge pixels are antialiased differently.",
+      "A scroll container's scrollbars are drawn in the capture, where Playwright's headless browser hides them.",
+      "A capture rejects instead of substituting what it cannot reproduce: a `<canvas>` cross-origin content tainted, an image the renderer cannot load, and in the captured area, until their capture can be verified, `<video>`, `<iframe>`, `<frame>`, `<object>`, `<embed>`, SVG `<image>`, and CSS `background-image`, `mask-image`, `border-image-source`, `list-style-image` or `content` images that load from a URL. Images from `data:` URLs are captured.",
+      "Text whose web font the renderer cannot embed also rejects the capture: a font added through the `FontFace` API rather than an `@font-face` rule, or one whose family name looks like an icon font's, such as one containing `icon`, `glyph` or `symbols`.",
+    ],
+    edgeCases: [
+      "An image that failed to load in the page also rejects the capture, where Playwright captures the browser's broken-image rendering.",
+      "The root background is painted over the whole image as a color only: a translucent one is applied twice inside the root element's box, and a background image on `<html>` or `<body>` covers only that element's box.",
+      "A `<canvas>` with `position: fixed` is resampled, so its pixels can differ slightly from the canvas's own.",
+      "Captures of one document run one at a time across all its `Page` objects, where Playwright queues them per page. A capture that times out or is aborted rejects at once, but rendering that already started finishes before the next capture begins.",
+      "The renderer can log a `console.warn()` message, such as a failed image request, which a `console` listener receives.",
+      "While a capture renders, the document temporarily holds extra hidden elements, which DOM queries and a `MutationObserver` can see; Playwright's capture leaves the document unchanged.",
+      "In a document without a doctype, `document.body.scrollTop` and `scrollLeft` read 0 while a capture copies the document.",
+      "An image that failed to load within the previous 8 seconds rejects a capture even if it would load now, because the renderer remembers failed URLs for that long.",
+    ],
+  },
+  {
     name: "Request and Response",
     reported:
       'The `fetch()` and `XMLHttpRequest` calls the current document makes while you are subscribed, through `page.on("request" | "response" | "requestfinished" | "requestfailed")`, `page.waitForRequest()`, `page.waitForResponse()` and `page.requests()`.',
@@ -545,7 +595,9 @@ export const pageLedger = {
   screencast: outOfScope(
     "Capturing a screencast requires the browser process."
   ),
-  screenshot: undecided(),
+  screenshot: partial(
+    'Returns a `Uint8Array` rendered from the DOM, and rejects `path`, `fullPage: true`, `clip`, `mask`, `style` and `animations: "disabled"`; see [Screenshots](#screenshots).'
+  ),
   selectOption: implemented(),
   sessionStorage: implemented("Native current-window Storage only."),
   setChecked: implemented(),
