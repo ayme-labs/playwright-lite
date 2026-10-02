@@ -22,6 +22,9 @@ const expectedMimeTypesSha256 =
   "fa27e7587fa87945e8afee7402ccdbc8463bc6cf0fc9c85f907f884402571986";
 const globalsId = "virtual:playwright-lite-globals";
 const resolvedGlobalsId = `\0${globalsId}`;
+/** SnapDOM's module, as tsdown and Vite (which leaves it unoptimized) load it. */
+const snapdomModule =
+  /[/\\]@zumer[/\\]snapdom[/\\]dist[/\\]snapdom\.mjs(?:\?|$)/;
 const expectedSnapshotNamesSha256 =
   "c7886655860636f469af6e7a681cd049264e60819e4a56590f03025815353191";
 /**
@@ -51,6 +54,14 @@ export function playwrightInjectedPlugin() {
       if (id === evaluationId) return resolvedEvaluationId;
       if (id === mimeId) return resolvedMimeId;
       if (id === globalsId) return resolvedGlobalsId;
+    },
+    // The screenshot renderer reads builtins by bare name like the pinned
+    // sources, so it gets the same values: a page that deletes or replaces
+    // one still gets captured. Importing the bindings would split them into a
+    // chunk the entry imports statically, so its module becomes a function
+    // that takes them when the first capture loads it.
+    transform(code: string, id: string) {
+      if (snapdomModule.test(id)) return rendererFactory(code, globals);
     },
     load(id: string) {
       if (id === resolvedMimeId)
@@ -135,6 +146,26 @@ function readScriptSource(
 }
 
 /**
+ * SnapDOM's module as `createRenderer(globals)`, which runs the module with
+ * each kept global bound to the value `globals` gives it and returns its
+ * exports.
+ */
+function rendererFactory(code: string, globals: readonly string[]): string {
+  const exports = /export\s*\{([^}]*)\};?\s*$/.exec(code);
+  if (!exports) throw new Error("Unsupported SnapDOM module format.");
+  const returned = exports[1].split(",").map((specifier) => {
+    const [local, name = local] = specifier.trim().split(/\s+as\s+/);
+    return `${name}: ${local}`;
+  });
+  return [
+    `export function createRenderer({ ${globals.join(", ")} }) {`,
+    code.slice(0, exports.index),
+    `return { ${returned.join(", ")} };`,
+    "}",
+  ].join("\n");
+}
+
+/**
  * `virtual:playwright-lite-globals`: one live binding per global, which the
  * pinned sources and this package's own modules import in place of the page's
  * global of that name.
@@ -145,7 +176,8 @@ function readScriptSource(
  * binding takes the page's current global while that is still a function (a
  * non-null object for the object builtins), and the snapshot otherwise. This
  * module never reads a global by its bare name, since each such name is one
- * of the bindings it declares.
+ * of the bindings it declares. `pageGlobals()` returns the bindings' current
+ * values by name.
  */
 function pageGlobalsModule(
   functions: readonly string[],
@@ -160,6 +192,7 @@ function pageGlobalsModule(
     `const snapshot = { ${names.map((name) => `${name}: globalThis.${name}`).join(", ")} };`,
     `export const pageGlobalNames = ${JSON.stringify(names)};`,
     `export let ${names.map((name) => `${name} = snapshot.${name}`).join(", ")};`,
+    `export function pageGlobals() { return { ${names.join(", ")} }; }`,
     "export function resolvePageGlobals() {",
     ...names.map(
       (name) =>
