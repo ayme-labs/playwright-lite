@@ -82,6 +82,7 @@ import {
 import {
   capture,
   PAGE_SCREENSHOT_OPTIONS,
+  pageRegion,
   pageScreenshotEncoding,
   type PageScreenshotOptions,
 } from "./screenshot";
@@ -3402,12 +3403,7 @@ export class PageImpl {
         describe: (element) => this.previewNode(element),
         // Pinned `_originalViewportSize` reads the window's inner size when
         // no viewport is emulated.
-        region: () => ({
-          x: browserWindow.scrollX,
-          y: browserWindow.scrollY,
-          width: browserWindow.innerWidth,
-          height: browserWindow.innerHeight,
-        }),
+        region: () => pageRegion(browserWindow, encoding),
       });
     });
   }

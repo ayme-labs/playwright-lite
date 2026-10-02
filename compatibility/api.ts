@@ -244,7 +244,7 @@ export const objectSections: readonly ObjectSection[] = [
   {
     name: "Screenshots",
     covers:
-      "`page.screenshot()` captures the current viewport by rendering the document's DOM into an image inside the page, with the codecs, `quality`, `scale` and `omitBackground` Playwright documents.",
+      "`page.screenshot()` captures the current viewport, the full page or a clipped region by rendering the document's DOM into an image inside the page, with the geometry, codecs, `quality`, `scale` and `omitBackground` Playwright documents.",
     members: [
       {
         member: "Returned image",
@@ -257,10 +257,9 @@ export const objectSections: readonly ObjectSection[] = [
         playwright: "Also writes the image to the file.",
       },
       {
-        member: "`fullPage`, `clip`, `mask`, `style`",
-        lite: "Rejected, except `fullPage: false`, an empty `mask` and an empty `style`.",
-        playwright:
-          "Capture the full page or a region, cover elements, and apply a stylesheet.",
+        member: "`mask`, `style`",
+        lite: "Rejected, except an empty `mask` and an empty `style`.",
+        playwright: "Cover elements and apply a stylesheet.",
       },
       {
         member: "`animations`",
@@ -288,6 +287,8 @@ export const objectSections: readonly ObjectSection[] = [
       "The renderer can log a `console.warn()` message, such as a failed image request, which a `console` listener receives.",
       "While a capture renders, the document temporarily holds extra hidden elements, which DOM queries and a `MutationObserver` can see; Playwright's capture leaves the document unchanged.",
       "In a document without a doctype, `document.body.scrollTop` and `scrollLeft` read 0 while a capture copies the document.",
+      "A capture more than 32,767 device pixels tall or wide, such as the full page of a long document, rejects where Playwright returns the image.",
+      "A clip narrower or shorter than one CSS pixel rejects with `Cannot take screenshot with 0 width.` or `0 height.`, without Playwright's `Protocol error (Page.captureScreenshot):` prefix.",
       "An image that failed to load within the previous 8 seconds rejects a capture even if it would load now, because the renderer remembers failed URLs for that long.",
     ],
   },
@@ -596,7 +597,7 @@ export const pageLedger = {
     "Capturing a screencast requires the browser process."
   ),
   screenshot: partial(
-    'Returns a `Uint8Array` rendered from the DOM, and rejects `path`, `fullPage: true`, `clip`, `mask`, `style` and `animations: "disabled"`; see [Screenshots](#screenshots).'
+    'Returns a `Uint8Array` rendered from the DOM, and rejects `path`, `mask`, `style` and `animations: "disabled"`; see [Screenshots](#screenshots).'
   ),
   selectOption: implemented(),
   sessionStorage: implemented("Native current-window Storage only."),

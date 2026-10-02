@@ -226,7 +226,7 @@ Targets Playwright **1.62.1**. Statuses describe API compatibility within the ru
 | [`routeFromHAR`](https://playwright.dev/docs/api/class-page#page-route-from-har)                                |   🚫   | Browser-level network interception is excluded.                                                                                                                                                                                                                                                                                                                                                                                                  |
 | [`routeWebSocket`](https://playwright.dev/docs/api/class-page#page-route-web-socket)                            |   🚫   | Browser-level network interception is excluded.                                                                                                                                                                                                                                                                                                                                                                                                  |
 | [`screencast`](https://playwright.dev/docs/api/class-page#page-screencast)                                      |   🚫   | Capturing a screencast requires the browser process.                                                                                                                                                                                                                                                                                                                                                                                             |
-| [`screenshot`](https://playwright.dev/docs/api/class-page#page-screenshot)                                      |   ⚠️   | Returns a `Uint8Array` rendered from the DOM, and rejects `path`, `fullPage: true`, `clip`, `mask`, `style` and `animations: "disabled"`; see [Screenshots](#screenshots).                                                                                                                                                                                                                                                                       |
+| [`screenshot`](https://playwright.dev/docs/api/class-page#page-screenshot)                                      |   ⚠️   | Returns a `Uint8Array` rendered from the DOM, and rejects `path`, `mask`, `style` and `animations: "disabled"`; see [Screenshots](#screenshots).                                                                                                                                                                                                                                                                                                 |
 | [`selectOption`](https://playwright.dev/docs/api/class-page#page-select-option)                                 |   ✅   |                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
 | [`sessionStorage`](https://playwright.dev/docs/api/class-page#page-session-storage)                             |   ✅   |                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
 | [`setChecked`](https://playwright.dev/docs/api/class-page#page-set-checked)                                     |   ✅   |                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
@@ -462,17 +462,17 @@ The `ElementHandle` and `JSHandle` objects this package returns, for example fro
 
 ### Screenshots
 
-`page.screenshot()` captures the current viewport by rendering the document's DOM into an image inside the page, with the codecs, `quality`, `scale` and `omitBackground` Playwright documents.
+`page.screenshot()` captures the current viewport, the full page or a clipped region by rendering the document's DOM into an image inside the page, with the geometry, codecs, `quality`, `scale` and `omitBackground` Playwright documents.
 
 **Differences from Playwright:**
 
-| Member                              | playwright-lite                                                           | Playwright                                                                 |
-| ----------------------------------- | ------------------------------------------------------------------------- | -------------------------------------------------------------------------- |
-| Returned image                      | A `Uint8Array`.                                                           | A Node.js `Buffer`.                                                        |
-| `path`                              | Rejected; write the returned bytes yourself.                              | Also writes the image to the file.                                         |
-| `fullPage`, `clip`, `mask`, `style` | Rejected, except `fullPage: false`, an empty `mask` and an empty `style`. | Capture the full page or a region, cover elements, and apply a stylesheet. |
-| `animations`                        | `"disabled"` is rejected.                                                 | Stops CSS animations, transitions and Web Animations.                      |
-| `caret`                             | Accepts both values; the text caret is never painted.                     | `"initial"` keeps the caret visible.                                       |
+| Member          | playwright-lite                                        | Playwright                                            |
+| --------------- | ------------------------------------------------------ | ----------------------------------------------------- |
+| Returned image  | A `Uint8Array`.                                        | A Node.js `Buffer`.                                   |
+| `path`          | Rejected; write the returned bytes yourself.           | Also writes the image to the file.                    |
+| `mask`, `style` | Rejected, except an empty `mask` and an empty `style`. | Cover elements and apply a stylesheet.                |
+| `animations`    | `"disabled"` is rejected.                              | Stops CSS animations, transitions and Web Animations. |
+| `caret`         | Accepts both values; the text caret is never painted.  | `"initial"` keeps the caret visible.                  |
 
 - Buttons, text inputs, `<select>` and `<progress>` are drawn with plain borders and colors instead of the browser's native control styling; checkboxes, radio buttons and range inputs match.
 - Text sits at the same positions, but its edge pixels are antialiased differently.
@@ -490,6 +490,8 @@ The `ElementHandle` and `JSHandle` objects this package returns, for example fro
 - The renderer can log a `console.warn()` message, such as a failed image request, which a `console` listener receives.
 - While a capture renders, the document temporarily holds extra hidden elements, which DOM queries and a `MutationObserver` can see; Playwright's capture leaves the document unchanged.
 - In a document without a doctype, `document.body.scrollTop` and `scrollLeft` read 0 while a capture copies the document.
+- A capture more than 32,767 device pixels tall or wide, such as the full page of a long document, rejects where Playwright returns the image.
+- A clip narrower or shorter than one CSS pixel rejects with `Cannot take screenshot with 0 width.` or `0 height.`, without Playwright's `Protocol error (Page.captureScreenshot):` prefix.
 - An image that failed to load within the previous 8 seconds rejects a capture even if it would load now, because the renderer remembers failed URLs for that long.
 
 </details>
