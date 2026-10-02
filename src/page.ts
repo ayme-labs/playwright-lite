@@ -2522,6 +2522,7 @@ export class PageImpl {
       ])
         feed.release();
       this.bindings.release(this.bindingOwner);
+      this.pointer.dispose();
       this.emit("close", this);
     });
   }
