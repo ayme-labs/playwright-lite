@@ -11,7 +11,7 @@
  * started cannot be stopped, so the queue waits for it and drops its result.
  */
 
-import type { Page } from "@playwright/test";
+import type { Locator, Page } from "@playwright/test";
 import { compressCallLog } from "./callLog";
 import { AdapterTimeoutError } from "./errors";
 import { isTargetClosedError, TargetClosedError } from "./lifetime";
@@ -34,6 +34,9 @@ import {
 
 export type PageScreenshotOptions = NonNullable<
   Parameters<Page["screenshot"]>[0]
+>;
+export type ElementScreenshotOptions = NonNullable<
+  Parameters<Locator["screenshot"]>[0]
 >;
 
 type ScreenshotFormat = "png" | "jpeg" | "webp";
@@ -72,6 +75,8 @@ const SHARED_OPTIONS = [
 
 /** The Page form's options; `fullPage` and `clip` are Page-only. */
 export const PAGE_SCREENSHOT_OPTIONS = [...SHARED_OPTIONS, "clip", "fullPage"];
+/** Element forms share the Page options but `clip` and `fullPage`. */
+export const ELEMENT_SCREENSHOT_OPTIONS = SHARED_OPTIONS;
 
 const FORMATS: ScreenshotFormat[] = ["png", "jpeg", "webp"];
 const MIME_TYPES: Record<ScreenshotFormat, string> = {
@@ -169,6 +174,15 @@ export function pageRegion(
     x: rect.x + browserWindow.scrollX,
     y: rect.y + browserWindow.scrollY,
   };
+}
+
+/** Pinned helper.ts `enclosingIntRect`. */
+export function enclosingIntRect(rect: DocumentRect): DocumentRect {
+  const x = Math.floor(rect.x + 1e-3);
+  const y = Math.floor(rect.y + 1e-3);
+  const x2 = Math.ceil(rect.x + rect.width - 1e-3);
+  const y2 = Math.ceil(rect.y + rect.height - 1e-3);
+  return { x, y, width: x2 - x, height: y2 - y };
 }
 
 /** Pinned screenshotter.ts `_fullPageSize`. */
@@ -269,8 +283,14 @@ export type CaptureTask = {
   title: string;
   /** Pinned `previewNode`, naming an element a capture refuses. */
   describe: (element: Element) => string;
-  /** Resolves the document rectangle to capture, once fonts are ready. */
-  region: () => DocumentRect;
+  /**
+   * Resolves the document rectangle to capture once fonts are ready, logging
+   * any waiting it does; `stopped` aborts once the caller stops waiting.
+   */
+  region: (
+    log: string[],
+    stopped: AbortSignal
+  ) => DocumentRect | Promise<DocumentRect>;
 };
 
 /** The pending work of each window's capture queue. */
@@ -358,9 +378,14 @@ async function run(
   if (cancelled()) return undefined;
   log.push("fonts loaded");
   const dpr = encoding.scale === "css" ? 1 : browserWindow.devicePixelRatio;
-  const region = withApiPrefix(task.apiName, () =>
-    devicePixelRegion(task.region(), dpr)
-  );
+  let region: DocumentRect;
+  try {
+    region = devicePixelRegion(await task.region(log, stopped), dpr);
+  } catch (error) {
+    if (cancelled()) return undefined;
+    throw withMessagePrefix(error, task.apiName);
+  }
+  if (cancelled()) return undefined;
   const usedFonts = assertCapturableContent(task, region);
   const renderer = await loadRenderer();
   if (cancelled()) return undefined;
