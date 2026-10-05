@@ -1,4 +1,5 @@
 import { HostObservation, perWindow } from "./hostGlobals";
+import { timersFor } from "./timers";
 import {
   Set,
   WeakMap,
@@ -495,13 +496,14 @@ export class NetworkObservation {
    * server/frames.ts fires `networkidle`. Subscribes until the release is called.
    */
   observeIdle(onIdle: () => void): () => void {
+    const timers = timersFor(this.window);
     let timer: number | undefined;
     const stopTimer = () => {
-      this.window.clearTimeout(timer);
+      timers.clearTimeout(timer);
       timer = undefined;
     };
     const startTimer = () => {
-      timer = this.window.setTimeout(() => {
+      timer = timers.setTimeout(() => {
         timer = undefined;
         onIdle();
       }, NETWORK_IDLE_TIMEOUT);

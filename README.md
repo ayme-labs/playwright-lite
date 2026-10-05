@@ -59,6 +59,7 @@ npm add @enekesabel/playwright-lite
 - **No browser control.** No browser launch, browser contexts, or browser-level control over network traffic, downloads, or other tabs.
 - **Content Security Policy applies.** Evaluation callbacks need the page's policy to allow dynamic JavaScript evaluation; the library does not bypass it.
 - **Closing keeps the document.** `close()` disposes the `Page` object, not the document; see [Closing a page](#closing-a-page).
+- **Hidden tabs keep their pace.** Actions and waits run at foreground speed in a background tab, with a few exceptions; see [Hidden tabs](#hidden-tabs).
 - **Shared JavaScript globals.** The library runs alongside the page's own scripts, so some changes the page makes to built-in globals reach it; see [Page globals](#page-globals).
 
 ### Page functions playwright-lite replaces
@@ -124,6 +125,18 @@ Playwright runs its page scripts in an isolated world, which no change the page 
 <summary>Edge cases</summary>
 
 - A failing `expect` assertion builds its message, and `toMatchAriaSnapshot()` reads its template, with the page's current globals, so after the page deletes `Object`, `Array` or `Math` they can throw that `ReferenceError` instead.
+
+</details>
+
+### Hidden tabs
+
+Browsers stop animation frames and slow timers down in a background tab. Playwright's browser runs with that turned off, and playwright-lite keeps actions, waits and assertions at their foreground pace while the document is hidden.
+
+<details>
+<summary>Edge cases</summary>
+
+- When the page's Content Security Policy blocks `blob:` workers, each timed wait, such as a `delay` option, `waitForTimeout()`, a polling interval or the stability check before an action, takes about a second while the tab is hidden.
+- While the tab is hidden, `toBeInViewport()` measures the element against the viewport and the ancestors that clip its overflow, and ignores clipping by CSS transforms, `clip-path` and `contain: paint`, or inside a closed shadow root the element is slotted into.
 
 </details>
 
@@ -390,7 +403,7 @@ A failed assertion throws an error whose `matcherResult` describes the failure: 
 | [`toBeEnabled`](https://playwright.dev/docs/api/class-locatorassertions#locator-assertions-to-be-enabled)                                     |   ✅   |                                                                                                                                                                                                                                                                                        |
 | [`toBeFocused`](https://playwright.dev/docs/api/class-locatorassertions#locator-assertions-to-be-focused)                                     |   ✅   |                                                                                                                                                                                                                                                                                        |
 | [`toBeHidden`](https://playwright.dev/docs/api/class-locatorassertions#locator-assertions-to-be-hidden)                                       |   ✅   |                                                                                                                                                                                                                                                                                        |
-| [`toBeInViewport`](https://playwright.dev/docs/api/class-locatorassertions#locator-assertions-to-be-in-viewport)                              |   ✅   |                                                                                                                                                                                                                                                                                        |
+| [`toBeInViewport`](https://playwright.dev/docs/api/class-locatorassertions#locator-assertions-to-be-in-viewport)                              |   ✅   | While the tab is hidden, clipping by CSS transforms, `clip-path`, `contain: paint`, or inside a closed shadow root the element is slotted into, is not counted; see [Hidden tabs](#hidden-tabs).                                                                                       |
 | [`toBeVisible`](https://playwright.dev/docs/api/class-locatorassertions#locator-assertions-to-be-visible)                                     |   ✅   |                                                                                                                                                                                                                                                                                        |
 | [`toContainClass`](https://playwright.dev/docs/api/class-locatorassertions#locator-assertions-to-contain-class)                               |   ✅   |                                                                                                                                                                                                                                                                                        |
 | [`toContainText`](https://playwright.dev/docs/api/class-locatorassertions#locator-assertions-to-contain-text)                                 |   ✅   |                                                                                                                                                                                                                                                                                        |
