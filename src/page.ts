@@ -5411,6 +5411,14 @@ export class PageImpl {
   ): boolean {
     const InputEvent = this.window.InputEvent;
     if (!InputEvent) return true;
+    // Chromium hands a contenteditable's beforeinput the selection it is about
+    // to edit; an editor that cancels the event inserts into that range.
+    const selection = this.window.getSelection();
+    const StaticRange = this.window.StaticRange;
+    const targetRanges =
+      isContentEditable(element) && selection?.rangeCount && StaticRange
+        ? [new StaticRange(selection.getRangeAt(0))]
+        : [];
     return element.dispatchEvent(
       new InputEvent("beforeinput", {
         bubbles: true,
@@ -5418,6 +5426,7 @@ export class PageImpl {
         composed: true,
         data,
         inputType,
+        targetRanges,
       })
     );
   }
