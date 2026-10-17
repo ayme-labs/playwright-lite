@@ -89,7 +89,7 @@ export type EventRow = {
 const elementHandleNote =
   "Returned `ElementHandle` methods and options differ; see [ElementHandle and JSHandle](#elementhandle-and-jshandle).";
 const byValueNote =
-  "Uses the pinned Playwright by-value argument and result serializers, and rejects a result nested deeper than Chromium's DevTools protocol accepts (298 serialized levels) in every browser, as Playwright does on Chromium.";
+  "Uses the pinned Playwright by-value argument and result serializers, and rejects a result nested deeper than Chromium's DevTools protocol accepts (298 serialized levels) in every browser, as Playwright does on Chromium. A function runs as the function it is, where Playwright evaluates its source in the page, so it needs no `eval`, which a Content Security Policy may forbid, and keeps its closure and its strict mode, where Playwright's copy is sloppy-mode code unless its body says otherwise; a string expression is evaluated as in Playwright. A function whose source does not re-parse, such as a bound or native function, runs, where Playwright rejects it as not well-serializable.";
 const handlePreviewNote =
   "The returned handle previews differently; see [ElementHandle and JSHandle](#elementhandle-and-jshandle).";
 const listenerNote =
@@ -781,7 +781,7 @@ export const touchscreenLedger = {
 /** The package's `selectors` export, Playwright's `selectors`. */
 export const selectorsLedger = {
   register: partial(
-    "A `script` of `{ path }` rejects, where Playwright reads the file; pass `content`. `contentScript: true` has no effect: the engine sees the page's JavaScript globals, where Playwright runs it in an isolated world. An engine takes effect in pages already in use, where Playwright applies it to documents loaded afterwards, so a source that throws when evaluated fails the page's next selector, where Playwright fails the next document's selectors. Registering an engine clears any active `highlight()`, which Playwright keeps."
+    "A `script` of `{ path }` rejects, where Playwright reads the file; pass `content`. `contentScript: true` has no effect: the engine sees the page's JavaScript globals, where Playwright runs it in an isolated world. A function `script` runs as the function it is, where Playwright evaluates its source in the page, so it needs no `eval`, which a Content Security Policy may forbid, and keeps its closure; a string or `{ content }` is evaluated as in Playwright. An engine takes effect in pages already in use, where Playwright applies it to documents loaded afterwards, so a source that throws when evaluated, or a function that throws when called, fails the page's next selector, where Playwright fails the next document's selectors. Registering an engine clears any active `highlight()`, which Playwright keeps."
   ),
   setTestIdAttribute: partial(
     "Test ID selectors that [`locator.normalize()`](https://playwright.dev/docs/api/class-locator#locator-normalize) generates and the `aka getByTestId(...)` hints in strict-mode errors use the new attribute at once; Playwright keeps, until the next document loads, the attribute in effect when the document first resolved a selector."
