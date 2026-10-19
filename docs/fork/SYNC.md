@@ -14,12 +14,13 @@ Keep the queue small, because every queue commit is a recurring conflict cost: s
 
 ## The queue
 
-| Commit                                          | Upstream          | Why it exists                                                                                                                                                 |
-| ----------------------------------------------- | ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `docs: rename CONTEXT.md to GLOSSARY.md`        | All, not sent yet | `docs/agents/domain.md` names the glossary `GLOSSARY.md`, the engineering skills' convention. Drops out of the queue once upstream carries it.                |
-| `feat: add fork-only WebMCP integration`        | None              | Package name, `private`, `./internal` export including codegen's `generateLocator`, injected runtime built from `ayme-labs/playwright` for dual ARIA capture. |
-| `build: commit generated sources`               | None              | Git installs run `prepare`; committed `build/generated` lets that build without cloning Playwright. `generate:check` guards it.                               |
-| `docs: describe the fork and its sync strategy` | None              | Fork text in `docs/readme-template.hbs`, the generated `README.md`, this file.                                                                                |
+| Commit                                                 | Upstream          | Why it exists                                                                                                                                                          |
+| ------------------------------------------------------ | ----------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `docs: rename CONTEXT.md to GLOSSARY.md`               | All, not sent yet | `docs/agents/domain.md` names the glossary `GLOSSARY.md`, the engineering skills' convention. Drops out of the queue once upstream carries it.                         |
+| `feat: add fork-only WebMCP integration`               | None              | Package name, `private`, `./internal` export including codegen's `generateLocator`, injected runtime built from `ayme-labs/playwright` for dual ARIA capture.          |
+| `build: commit generated sources`                      | None              | Git installs run `prepare`; committed `build/generated` lets that build without cloning Playwright. `generate:check` guards it.                                        |
+| `docs: describe the fork and its sync strategy`        | None              | Fork text in `docs/readme-template.hbs`, the generated `README.md`, this file.                                                                                         |
+| `feat: expose the pointer hit target through internal` | None              | `pointerHitTarget` in `./internal`: the click point and the element in the way, with the click's own hit test, so ayme can offer and refuse elements without clicking. |
 
 Upstream says how much of a commit belongs in upstream Playwright Lite: all, part (split it, and only the rest stays), or none.
 
