@@ -1,4 +1,10 @@
 import { inputShadowRoot, learnClosedRoots } from "./closedShadowRoots";
+import {
+  deepestHitAt,
+  hitElementAt,
+  hitReaches,
+  type PointerHitTarget,
+} from "./pointerHitTarget";
 import { Evaluation } from "./evaluation";
 import type { EvaluationFunction, EvaluationOptions } from "./evaluation";
 import {
@@ -5140,6 +5146,37 @@ export class PageImpl {
         `Element does not receive pointer events: ${result.hitTargetDescription}`
       );
     return point;
+  }
+
+  /**
+   * Fork-only, for `pointerHitTarget` in `./internal`: the point a click on
+   * `element` would use and what it would hit there right now, with the same
+   * point and hit test `ensureReceivesEvents` runs before a click, but without
+   * scrolling, waiting or retrying. `undefined` where `pointerPoint` would
+   * throw: not connected, not rendered, or outside the viewport.
+   */
+  pointerHitTarget(element: Element): PointerHitTarget | undefined {
+    let point: ActionPoint;
+    try {
+      point = this.pointerPoint(element);
+    } catch {
+      return undefined;
+    }
+    const target = (
+      this.injected as typeof this.injected & QueryCapableInjectedScript
+    ).retarget(element, "button-link");
+    if (!target) return undefined;
+    const hit = hitElementAt(point, target, this.window);
+    if (hitReaches(hit, target)) return { point };
+    // Pinned expectHitTarget describes the document element for an empty hit.
+    return {
+      point,
+      hit: deepestHitAt(
+        hit ?? this.document.documentElement,
+        point,
+        this.window
+      ),
+    };
   }
 
   private pointerPoint(element: Element, position?: ActionPoint): ActionPoint {
