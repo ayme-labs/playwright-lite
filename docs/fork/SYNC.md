@@ -20,6 +20,7 @@ Keep the queue small, because every queue commit is a recurring conflict cost: s
 | `build: commit generated sources`                             | Git installs run `prepare`; committed `build/generated` lets that build without cloning Playwright. `generate:check` guards it.                                        |
 | `docs: describe the fork and its sync strategy`               | Fork text in `docs/readme-template.hbs`, the generated `README.md`, this file.                                                                                         |
 | `fix: call a function selector engine as it is, without eval` | A function engine runs as it is, so `selectors.register` works under a page CSP without `unsafe-eval`. Sent upstream; drops out of the queue once upstream carries it. |
+| `feat: expose the pointer hit target through internal`        | `pointerHitTarget` in `./internal`: the click point and the element in the way, with the click's own hit test, so ayme can offer and refuse elements without clicking. |
 
 A fork-only change between syncs is a new tag too: branch from the latest `ayme-*` tag, change the queue, continue at step 3.
 
