@@ -13,7 +13,7 @@ import {
   assertMaxArguments,
 } from "./jsHandle";
 import { injectedScriptFor, parseAriaExpectation } from "./injected";
-import { AdapterTimeoutError } from "./errors";
+import { AdapterTimeoutError, isAdapterTimeoutError } from "./errors";
 import { compressCallLog } from "./callLog";
 import {
   PageLifetime,
@@ -1400,7 +1400,8 @@ export class PageImpl {
   /** Pinned dom.ts owns the ordering: actionability, scroll, hit interception,
    * temporary modifiers, input, interception cleanup. Only input is synthetic.
    * `log` carries the call log of an earlier action in the same call, as
-   * pinned dragAndDrop's two actions share one.
+   * pinned dragAndDrop's two actions share one. A timeout at any step reports
+   * the call log, as pinned progress does.
    */
   private async performPointerAction(
     selector: string | Element,
@@ -1415,7 +1416,7 @@ export class PageImpl {
       | "uncheck"
       | "setChecked"
       | "dragTo" = action,
-    log?: string[]
+    log: string[] = []
   ): Promise<void> {
     try {
       if (action === "tap" && !supportsTouch(this.window))
@@ -1497,11 +1498,28 @@ export class PageImpl {
             if (options.modifiers)
               await this.keyboard.ensureModifiers(options.modifiers, deadline);
             this.assertActionDeadline(deadline, action);
+            log.push(`  performing ${action} action`);
             // Pinned dom.ts performs a tap and each half of a drag also in a
             // trial run, whose events the interceptor then blocks; a tap
             // leaves the mouse where it is.
             if (action === "tap")
               await this.pointer.tap(target.point, { deadline, action });
+            else if (
+              !options.trial &&
+              (action === "click" || action === "dblclick")
+            )
+              await this.pointer.click(
+                target.point,
+                options.button ?? "left",
+                action === "dblclick" ? 2 : (options.clickCount ?? 1),
+                options.delay,
+                { deadline, action },
+                options.steps,
+                () => {
+                  if (!target.element.isConnected)
+                    throw new Error("Element is not connected");
+                }
+              );
             else
               await this.pointer.moveTo(
                 target.point,
@@ -1512,26 +1530,16 @@ export class PageImpl {
               await this.pointer.press("left", 1, { deadline, action });
             else if (action === "move and up")
               await this.pointer.release("left", 1, { deadline, action });
-            else if (
-              !options.trial &&
-              (action === "click" || action === "dblclick")
-            )
-              await this.pointer.clickHere(
-                options.button ?? "left",
-                action === "dblclick" ? 2 : (options.clickCount ?? 1),
-                options.delay,
-                { deadline, action },
-                () => {
-                  if (!target.element.isConnected)
-                    throw new Error("Element is not connected");
-                }
-              );
           } finally {
             interception = interceptor?.stop() ?? "done";
             // Cleanup is not input activation and must also run after timeout.
             if (options.modifiers)
               await this.keyboard.ensureModifiers(previousModifiers);
           }
+          // Input under way reaches the page whole, as pinned crInput.ts sends
+          // it, so the deadline can pass while it runs. Pinned progress then
+          // times out the action after the input has landed.
+          this.assertActionDeadline(deadline, action);
           if (interception !== "done")
             throw new Error(
               `Element does not receive pointer events: ${interception.hitTargetDescription}`
@@ -1543,14 +1551,15 @@ export class PageImpl {
           )
             throw new Error("Clicking the checkbox did not change its state");
           // Pinned dom.ts logs these once the input is done.
-          log?.push(
-            `  performing ${action} action`,
+          log.push(
             `  ${options.trial ? "trial " : ""}${action} action done`,
             "  waiting for scheduled navigations to finish",
             "  navigations have finished"
           );
           return;
         } catch (error) {
+          // Pinned progress times out whatever the input did to the handle.
+          if (isAdapterTimeoutError(error)) throw error;
           if (typeof selector !== "string" && !selector.isConnected)
             throw new Error("Element is not attached to the DOM", {
               cause: error,
@@ -1580,6 +1589,14 @@ export class PageImpl {
         ? `${method[1]}.${method[2]}`
         : `locator.${apiMethod}`;
       result.message = `${prefix}: ${result.message.replace(new RegExp(`^${action}: `), "")}`;
+      // The actionability retries render the log they time out with; a
+      // timeout after them, during or after the input, adds it here.
+      if (
+        isAdapterTimeoutError(result) &&
+        log.length &&
+        !result.message.includes("\nCall log:\n")
+      )
+        result.message += `\nCall log:\n${compressCallLog(log).join("\n")}`;
       throw result;
     }
   }
@@ -4758,12 +4775,13 @@ export class PageImpl {
   private async ensureActionable(
     element: Element,
     states: ("visible" | "enabled" | "editable" | "stable")[],
-    deadline?: ActionDeadline
+    deadline: ActionDeadline,
+    timeoutError: () => Error
   ) {
     const result = await this.waitForActionDeadline(
       this.actionableInjected.checkElementStates(element, states),
       deadline,
-      () => this.actionabilityDeadlineError(element, states)
+      () => this.actionabilityDeadlineError(element, states, timeoutError)
     );
     if (!result) return;
     if (result === "error:notconnected")
@@ -4807,7 +4825,8 @@ export class PageImpl {
 
   private actionabilityDeadlineError(
     element: Element,
-    states: ("visible" | "enabled" | "editable" | "stable")[]
+    states: ("visible" | "enabled" | "editable" | "stable")[],
+    timeoutError: () => Error
   ): Error {
     if (!element.isConnected) return new Error("Element is not connected");
     if (
@@ -4825,7 +4844,10 @@ export class PageImpl {
         return new Error("Element is not connected");
       if (!result.matches) return new Error(`Element is not ${state}`);
     }
-    return new Error("Element is not stable");
+    // The stability check waits for animation frames, so the deadline can end
+    // it before it compares two boxes. Like pinned progress, that is the
+    // action's timeout: only a box seen moving makes the element not stable.
+    return timeoutError();
   }
 
   private async retryActionability(
@@ -4929,7 +4951,8 @@ export class PageImpl {
           retry = 0;
         }
         if (!force) logLine(`  waiting for element to be ${stateLabel}`);
-        if (!force) await this.ensureActionable(element, states, deadline);
+        if (!force)
+          await this.ensureActionable(element, states, deadline, timeoutError);
         if (!force) logPointerLine(`  element is ${stateLabel}`);
         if (Date.now() >= deadline.expiresAt) throwTimeout();
         logPointerLine("  scrolling into view if needed");
@@ -4951,7 +4974,8 @@ export class PageImpl {
             });
         }
         // Scrolling can change visibility or expose a covering element.
-        if (!force) await this.ensureActionable(element, states, deadline);
+        if (!force)
+          await this.ensureActionable(element, states, deadline, timeoutError);
         logPointerLine("  done scrolling");
         const point = checkHitTarget
           ? this.ensureReceivesEvents(element, position, force)
