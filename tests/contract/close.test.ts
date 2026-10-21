@@ -124,21 +124,29 @@ describe("Page.close", () => {
       );
   });
 
-  it("stops a pending mouse call at its next event", async () => {
+  it("stops a pending mouse call at its next raw input", async () => {
     const page = createPage();
     let afterClose = 0;
     let closed = false;
     const count = () => {
       if (closed) afterClose++;
     };
-    for (const type of ["pointermove", "mousemove", "mousedown", "click"])
+    // Each move step's raw input starts with its pointermove.
+    for (const type of ["pointermove", "mousedown", "click"])
       document.addEventListener(type, count);
-    try {
-      const moving = page.mouse.move(200, 200, { steps: 200 });
-      const clicking = page.mouse.dblclick(20, 20);
-      await new Promise((resolve) => setTimeout(resolve, 20));
-      await page.close();
+    let moves = 0;
+    let closing: Promise<void> | undefined;
+    const closeMidway = () => {
+      if (++moves !== 10) return;
+      closing = page.close();
       closed = true;
+    };
+    document.addEventListener("pointermove", closeMidway);
+    try {
+      const clicking = page.mouse.dblclick(20, 20, { delay: 100 });
+      const moving = page.mouse.move(200, 200, { steps: 200 });
+      await rejection(moving);
+      await closing;
 
       expect((await rejection(moving))?.message).toBe(
         `mouse.move: ${closedMessage}`
@@ -149,8 +157,28 @@ describe("Page.close", () => {
       await new Promise((resolve) => setTimeout(resolve, 50));
       expect(afterClose).toBe(0);
     } finally {
-      for (const type of ["pointermove", "mousemove", "mousedown", "click"])
+      document.removeEventListener("pointermove", closeMidway);
+      for (const type of ["pointermove", "mousedown", "click"])
         document.removeEventListener(type, count);
+    }
+  });
+
+  it("stops a stepped click without a delay before its press once the page closes", async () => {
+    document.body.innerHTML = "<button>go</button>";
+    const page = createPage();
+    let presses = 0;
+    const press = () => presses++;
+    const close = () => void page.close();
+    document.addEventListener("mousedown", press);
+    document.addEventListener("pointermove", close, { once: true });
+    try {
+      expect(
+        (await rejection(page.click("button", { steps: 3 } as never)))?.message
+      ).toContain(closedMessage);
+      expect(presses).toBe(0);
+    } finally {
+      document.removeEventListener("mousedown", press);
+      document.removeEventListener("pointermove", close);
     }
   });
 

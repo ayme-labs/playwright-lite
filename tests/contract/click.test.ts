@@ -332,6 +332,23 @@ describe("Locator.click", () => {
     expect(gaps.every((gap) => gap >= 25)).toBe(true);
   });
 
+  it("lets a click land whole when its signal aborts during a press", async () => {
+    document.body.innerHTML = "<button>go</button>";
+    const page = createPage();
+    const button = document.querySelector("button")!;
+    const events: string[] = [];
+    const controller = new AbortController();
+    button.addEventListener("pointerdown", () => controller.abort());
+    for (const type of ["pointerdown", "mousedown", "pointerup", "click"])
+      button.addEventListener(type, () => events.push(type));
+    await expect(
+      page.click("button", { delay: 1, signal: controller.signal } as never)
+    ).rejects.toThrow();
+    // Pinned crInput.ts hands the press to the browser whole; the abort
+    // stops the click before its release.
+    expect(events).toEqual(["pointerdown", "mousedown"]);
+  });
+
   it("force bypasses hit checks, not geometry or actual event targeting", async () => {
     document.body.innerHTML =
       '<button style="position:fixed;left:30px;top:30px;width:80px;height:40px">go</button><div id="cover" style="position:fixed;inset:0;z-index:10"></div>';

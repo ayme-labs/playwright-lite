@@ -126,6 +126,54 @@ describe("Keyboard", () => {
     expect(nestedClicks).toBe(0);
   });
 
+  it("dispatches each key input in one task, running nested microtasks between its events", async () => {
+    document.body.innerHTML = "<input id=input />";
+    const page = createPage();
+    const input = document.querySelector("#input") as HTMLInputElement;
+    const seen: string[] = [];
+    const tasks: Record<string, number> = {};
+    let task = 0;
+    const { port1, port2 } = new MessageChannel();
+    port1.onmessage = () => {
+      task++;
+      port2.postMessage(null);
+    };
+    port2.postMessage(null);
+    const types = ["keydown", "keypress", "input", "keyup"];
+    try {
+      for (const type of types)
+        input.addEventListener(type, () => {
+          tasks[type] = task;
+          seen.push(type);
+          queueMicrotask(() =>
+            queueMicrotask(() =>
+              queueMicrotask(() => seen.push(`${type} done`))
+            )
+          );
+        });
+      input.focus();
+      await page.keyboard.press("a");
+    } finally {
+      port1.close();
+    }
+    expect(seen).toEqual(types.flatMap((type) => [type, `${type} done`]));
+    // Pinned Keyboard.press sends the key up once the key down has landed.
+    expect(tasks.keypress).toBe(tasks.keydown);
+    expect(tasks.input).toBe(tasks.keydown);
+    expect(tasks.keyup).toBeGreaterThan(tasks.keydown!);
+  });
+
+  it("stops page.keyboard input queued before the page closes", async () => {
+    document.body.innerHTML = "<input id=input />";
+    const page = createPage();
+    const input = document.querySelector("#input") as HTMLInputElement;
+    input.focus();
+    const typing = page.keyboard.insertText("x");
+    await page.close();
+    await expect(typing).rejects.toThrow();
+    expect(input.value).toBe("");
+  });
+
   it("exposes stable page.keyboard state to the current focused element", async () => {
     document.body.innerHTML =
       "<input id=input /><textarea id=textarea></textarea>";
