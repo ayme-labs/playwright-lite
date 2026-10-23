@@ -1,4 +1,6 @@
 allowBuilds:
   esbuild: true
 patchedDependencies:
+  # Until SnapDOM ships its fix for family names containing "__"
+  # (https://github.com/zumerlab/snapdom/issues/542); drop this patch with that upgrade.
   "@zumer/snapdom@3.2.0": patches/@zumer__snapdom@3.2.0.patch
