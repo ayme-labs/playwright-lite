@@ -1,2 +1,4 @@
 allowBuilds:
   esbuild: true
+patchedDependencies:
+  "@zumer/snapdom@3.2.0": patches/@zumer__snapdom@3.2.0.patch

@@ -585,6 +585,35 @@ describe("Page.screenshot", () => {
     );
   });
 
+  it("renders text in a web font whose name contains two underscores", async () => {
+    // Next.js's dev overlay declares "__nextjs-Geist" in the document and uses
+    // it in a shadow root; SnapDOM keyed its fonts with "__" as a separator.
+    const ink = async (font: string) => {
+      const host = document.createElement("div");
+      document.body.replaceChildren(host);
+      host
+        .attachShadow({ mode: "open" })
+        .append(
+          Object.assign(document.createElement("span"), { textContent: "+-" })
+        );
+      host.style.font = `40px ${font}`;
+      host.style.display = "inline-block";
+      await document.fonts.ready;
+      const box = host.getBoundingClientRect();
+      const image = await decode(await createPage().screenshot());
+      let dark = 0;
+      for (let y = Math.ceil(box.top); y < Math.floor(box.bottom); y++)
+        for (let x = Math.ceil(box.left); x < Math.floor(box.right); x++)
+          if (image.pixel(x, y)[0] < 64) dark++;
+      return dark;
+    };
+    await webFont("__pwtest-font");
+
+    expect(await ink('"__pwtest-font", serif')).toBeGreaterThan(
+      4 * (await ink("serif"))
+    );
+  });
+
   it("rejects text in a web font the renderer would not embed", async () => {
     // SnapDOM skips families named like icon fonts.
     await webFont("pwtest-iconfont");
