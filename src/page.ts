@@ -5938,6 +5938,19 @@ class BrowserKeyboard {
   }
 }
 
+/**
+ * Fork-only: whether `keyboard.press` accepts `key`, checked against the same
+ * shortcut split and key layout the press uses, without pressing anything.
+ */
+export function isPressableKey(key: string): boolean {
+  try {
+    const target = splitKeyboardShortcut(key).at(-1)!;
+    return keyboardLayout.has(resolveKeyboardKey(target));
+  } catch {
+    return false;
+  }
+}
+
 function splitKeyboardShortcut(key: string): string[] {
   const tokens: string[] = [];
   let building = "";
