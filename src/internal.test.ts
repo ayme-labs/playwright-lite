@@ -43,6 +43,16 @@ it("keeps full DOM refs and locator identity across dual captures", async () => 
   expect(await locator.count()).toBe(1);
 });
 
+it("keeps aria-labelledby names in the distilled capture", () => {
+  document.body.innerHTML =
+    '<section aria-labelledby="team"><h2 id="team">Engineering</h2></section><div role="dialog" aria-labelledby="edit"><h2 id="edit">Edit member</h2></div><section aria-label="Probe"><h2>Heading</h2></section><div role="dialog"><h2>Untitled</h2></div>';
+  const { distilledText } = captureAriaSnapshot(document.body);
+  expect(distilledText).toContain('region "Engineering"');
+  expect(distilledText).toContain('dialog "Edit member"');
+  expect(distilledText).toContain('region "Probe"');
+  expect(distilledText).toMatch(/- dialog \[ref=\w+\]:/);
+});
+
 /** Evaluates a generated locator string on `base`, the way code would use it. */
 function resolveGenerated(base: object, locator: string) {
   const built = new Function("base", `return base.${locator};`)(base) as object;

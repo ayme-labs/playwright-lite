@@ -3,9 +3,9 @@ import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, resolve } from "node:path";
 
-const expectedArtifactBytes = 331512;
+const expectedArtifactBytes = 331543;
 const expectedArtifactSha256 =
-  "8517fd96ce7384ba9068116c21ebe3e2d0b61d123483df938b15aa4382ad92df";
+  "c32a749392d5f9b27ff245204b4873a518d04b5ba7e860d299de5d15c4084b7b";
 const injectedId = "virtual:playwright-lite-injected";
 const resolvedInjectedId = `\0${injectedId}`;
 const evaluationId = "virtual:playwright-lite-evaluation";

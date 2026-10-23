@@ -20,7 +20,7 @@ const check = process.argv.includes("--check");
 // The compatibility corpus stays pinned to stock Playwright.
 const injectedSource = {
   repository: "ayme-labs/playwright",
-  commit: "b25d782e3fbdf21abdae60e974e49b78ca07e828",
+  commit: "f91aac68e3cd0df0b8cef237d7cd21102cc8a38d",
 };
 assert.equal(corpus.source.repository, "microsoft/playwright");
 assert.match(corpus.source.commit, /^[a-f0-9]{40}$/);
