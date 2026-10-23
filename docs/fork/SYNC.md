@@ -20,6 +20,7 @@ Keep the queue small, because every queue commit is a recurring conflict cost: s
 | `build: commit generated sources`                      | None     | Git installs run `prepare`; committed `build/generated` lets that build without cloning Playwright. `generate:check` guards it.                                        |
 | `docs: describe the fork and its sync strategy`        | None     | Fork text in `docs/readme-template.hbs`, the generated `README.md`, this file.                                                                                         |
 | `feat: expose the pointer hit target through internal` | None     | `pointerHitTarget` in `./internal`: the click point and the element in the way, with the click's own hit test, so ayme can offer and refuse elements without clicking. |
+| `feat: expose the key check through internal`          | None     | `isPressableKey` in `./internal`: whether `keyboard.press` accepts a key, from the press's own layout, so ayme can refuse an unknown key before it acts.               |
 
 Upstream says how much of a commit belongs in upstream Playwright Lite: all, part (split it, and only the rest stays), or none.
 

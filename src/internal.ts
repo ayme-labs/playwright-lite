@@ -7,6 +7,7 @@ import type { PointerHitTarget } from "./pointerHitTarget";
 
 // Fork-only contract for the WebMCP integration. Not part of upstream's root API.
 export { isPlaywrightLiteLocator, resolveLocatorElements } from "./locator";
+export { isPressableKey } from "./page";
 export type { PointerHitTarget } from "./pointerHitTarget";
 
 export type CaptureAriaSnapshotResult = {

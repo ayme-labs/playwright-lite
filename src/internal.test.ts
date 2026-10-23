@@ -5,6 +5,7 @@ import {
   captureAriaSnapshot,
   generateLocator,
   isPlaywrightLiteLocator,
+  isPressableKey,
   pointerHitTarget,
   resolveLocatorElements,
 } from "./internal";
@@ -269,3 +270,36 @@ describe("pointerHitTarget", () => {
     );
   });
 });
+
+it.each([
+  ["a", true],
+  ["A", true],
+  ["ArrowLeft", true],
+  ["KeyA", true],
+  ["ControlOrMeta+A", true],
+  ["Shift+ArrowLeft", true],
+  ["+", true],
+  ["Control++", true],
+  ["", false],
+  ["Foo", false],
+  ["é", false],
+  ["a+b", false],
+  ["Control+", false],
+  ["Foo+a", false],
+])(
+  "isPressableKey(%j) is %s, as keyboard.press finds it",
+  async (key, pressable) => {
+    document.body.innerHTML = "<input>";
+    document.querySelector("input")!.focus();
+    const page = createPage();
+    const pressed = await page.keyboard.press(key).then(
+      () => true,
+      (error: Error) => {
+        expect(error.message).toContain("Unknown key");
+        return false;
+      }
+    );
+    expect(pressed).toBe(pressable);
+    expect(isPressableKey(key)).toBe(pressable);
+  }
+);
