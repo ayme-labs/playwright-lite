@@ -4,6 +4,9 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
+patchedDependencies:
+  '@zumer/snapdom@3.2.0': 111480cb2ac0c969f05c10f6a0bbb9559bb298745f98d5b2fc3a731022c2daa7
+
 importers:
 
   .:
@@ -34,7 +37,7 @@ importers:
         version: 4.1.11(playwright@1.62.1)(vite@8.2.2(@types/node@24.13.4)(esbuild@0.28.1)(jiti@2.6.1)(yaml@2.9.0))(vitest@4.1.11)
       '@zumer/snapdom':
         specifier: 3.2.0
-        version: 3.2.0
+        version: 3.2.0(patch_hash=111480cb2ac0c969f05c10f6a0bbb9559bb298745f98d5b2fc3a731022c2daa7)
       esbuild:
         specifier: 0.28.1
         version: 0.28.1
@@ -2385,7 +2388,7 @@ snapshots:
 
   '@yuku-toolchain/types@0.8.7': {}
 
-  '@zumer/snapdom@3.2.0': {}
+  '@zumer/snapdom@3.2.0(patch_hash=111480cb2ac0c969f05c10f6a0bbb9559bb298745f98d5b2fc3a731022c2daa7)': {}
 
   acorn-jsx@5.3.2(acorn@8.18.0):
     dependencies:
